@@ -47,6 +47,18 @@ The **entire libp2p stack is pinned to EXACT `@libp2p/interface` v2 versions**
   passthroughMapper for loopback, plain-function validators/selectors, key-prefix
   keying) live in the auto-memory file `memory/libp2p-v2-stack-pin.md`. Read it
   before editing [p2p-node.ts](src/p2p-node.ts).
+- **Security advisory GHSA-32mq-hpph-xfvr (CVE-2026-45783, CVSS 7.5) is mitigated
+  in OUR code, not by upgrading.** kad-dht `<16.2.6` stores PUT_VALUE records
+  without validating short keys, enabling an unauthenticated peer to exhaust a
+  server node's datastore (RAM for us — default MemoryDatastore). The fix exists
+  ONLY on the v3 line (16.2.6+), which we can't adopt (see above). Instead our
+  DHT validator ([dht-validator.ts](src/dht-validator.ts)) enforces a value size
+  cap (`MAX_RECORD_VALUE_BYTES`) + exact key shape (`/kalthraxius/<sha256>`) +
+  JSON-object shape, so flood records are rejected before storage. The old
+  validator was a no-op `async () => {}` that stored everything — that was the
+  real hole. **Do NOT revert the validator to a no-op** and do NOT run
+  `npm audit fix --force` (it pulls kad-dht@16 → v3 split-brain). Revisit when
+  the stack moves to v3.
 - `@libp2p/crypto`'s nested interface-v3 copy is **type-only and harmless**; the
   skew it causes is bridged in [identity.ts](src/identity.ts) by sourcing the key
   type from the crypto module's own signature. Don't "fix" it back to

@@ -24,6 +24,11 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
+  "comment:overrides": "puppeteer-extra-plugin-user-data-dir pins rimraf@3 (→ glob@7 → inflight, a known memory leak). We override to rimraf@4, the newest major that (a) drops inflight entirely and (b) is still imported as a callable `require('rimraf')(path, opts, cb)` the way the plugin calls it. rimraf@5/6 export an object, not a function, and crash the plugin's cleanup at runtime ('rimraf is not a function'). rimraf@4 is promise-based so the plugin's debug-only callback never fires, but the directory IS deleted (verified). glob is pinned to ^9 (what rimraf@4 needs); glob still prints a self-deprecation notice on install but carries no actual advisory — going higher would force rimraf@6 and break the plugin. Transitive-only; we don't use rimraf/glob directly.",
+  "overrides": {
+    "rimraf": "^4.4.1",
+    "glob": "^9.3.5"
+  },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "14.1.2",
     "@chainsafe/libp2p-noise": "16.1.5",

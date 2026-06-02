@@ -8,6 +8,7 @@ import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { gossipsub } from '@chainsafe/libp2p-gossipsub'
 import { bootstrap } from '@libp2p/bootstrap'
 import type { Libp2p, PubSub } from '@libp2p/interface'
+import { validateKalthraxiusRecord } from './dht-validator.js'
 import type { Ed25519Identity } from './identity.js'
 import type { Ping } from '@libp2p/ping'
 import type { KadDHT } from '@libp2p/kad-dht'
@@ -26,12 +27,13 @@ export interface NodeOptions {
 }
 
 /**
- * DHT validator: throws if a record is invalid, resolves otherwise.
- * We accept any well-formed value under the `kalthraxius` namespace — record
- * integrity is enforced separately via SHA-256 content hashing (see hasher.ts),
- * not at the DHT layer. Keyed by the first key path segment (`/kalthraxius/...`).
+ * DHT validator: throws if a record is invalid, resolves otherwise. Hardened to
+ * enforce a value size cap + key/value shape (see dht-validator.ts) so a peer
+ * can't flood our (memory) datastore — mitigates GHSA-32mq-hpph-xfvr, which has
+ * no fix on our v2-pinned kad-dht line. Keyed by the first key path segment
+ * (`/kalthraxius/...`).
  */
-const acceptRecord = async (_key: Uint8Array, _value: Uint8Array): Promise<void> => {}
+const acceptRecord = validateKalthraxiusRecord
 
 /**
  * DHT selector: picks the best record among several for the same key.
