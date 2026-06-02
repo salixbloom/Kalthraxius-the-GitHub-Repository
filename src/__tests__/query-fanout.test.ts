@@ -48,7 +48,7 @@ afterEach(async () => {
 async function makeAggregator(node: KalthraxiusNode, label: string, jobs: RawJob[]): Promise<AggregatorNode> {
   const store = new SqliteAggregatorStore(join(tmpDir, `${label}-store.db`))
   const search = new SqliteSearchIndex(join(tmpDir, `${label}-search.db`))
-  const agg = new AggregatorNode({ node, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000 })
+  const agg = new AggregatorNode({ node, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000, verifyContentHash: false })
   for (const j of jobs) agg.ingest(j)
   await agg.start()
   cleanups.push(async () => {

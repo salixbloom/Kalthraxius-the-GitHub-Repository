@@ -8,12 +8,12 @@ Kalthraxius is a decentralized, qualification-first job search network: many
 cheap scraper nodes coordinate over libp2p; aggregator nodes index and serve
 queries; users get back only jobs they qualify for. Node.js + TypeScript.
 
-**Phase status:** Phases 1–6 are built and green — scraper core, libp2p
-identity, DHT + GossipSub + coordination, the enrichment pipeline, the
-aggregator node, and the query layer (filter → score → rank, K=6 fan-out,
-REST/SSE). Next up is Phase 7 (trust & reputation: content-hash integrity
-checks, cross-aggregator stat comparison, staleness probe, feedback gossip,
-client reputation scoring). The Phase 3 DHT churn test is a HARD GATE and passes.
+**Phase status:** Phases 1–7 are built and green — scraper core, libp2p
+identity, DHT + GossipSub + coordination, enrichment, the aggregator node, the
+query layer, and trust & reputation. Next up is Phase 8 (hardening: stealth
+scraping, batched schema-migration job, descriptor-validator CLI, formalized
+50-node churn stress suite). The Phase 3 DHT churn test is a HARD GATE and
+passes.
 
 ## Commands
 
@@ -225,6 +225,59 @@ skills-never-exclude). Distributed gates in
 aggregators returns once (dedup), dead aggregator doesn't block live ones
 (failover), DHT discovery finds aggregators, first SSE hit arrives fast, REST
 returns merged JSON.
+
+---
+
+## Phase 7 trust & reputation: architecture & invariants
+
+Defends the federation against faulty/malicious aggregators
+([src/trust/](src/trust/) + [src/job-hash.ts](src/job-hash.ts)).
+
+- **Canonical two-part job identity** ([job-hash.ts](src/job-hash.ts)) — this is
+  foundational; producer and verifier MUST agree:
+  - `locationHash = sha256(platformId + url)` — the posting's ADDRESS. Groups all
+    copies of the same listing across aggregators. **Same locationHash +
+    different contentHash = two aggregators disagree on the same posting = a
+    tamper signal** (the hook for catching bad actors).
+  - `contentHash = sha256(canonical content fields)` — content fields only,
+    length-prefixed-by-key so text can't shift across field boundaries.
+    **EXCLUDES `scrapedAt`** (volatile — two honest scrapers must agree) and
+    enrichment (derived). Before Phase 7 there was NO canonical job hash;
+    `contentHash` was set externally. If you change the canonical field set, you
+    invalidate every stored hash — treat it like a wire-format change.
+- **Integrity is the only tamper-proof signal — weight it highest** (risk
+  register). `verifyIntegrity(job)` recomputes and compares. `AggregatorNode.ingest`
+  REJECTS mismatches (doesn't store them) and counts them (`node.rejected`),
+  gated by `verifyContentHash` (default **true**; set false for fixtures with
+  placeholder hashes — the pre-Phase-7 aggregator/query tests do this).
+- **Reputation scoring** ([trust/reputation.ts](src/trust/reputation.ts)):
+  weighted blend, integrity-dominant (`DEFAULT_WEIGHTS` integrity 0.5, staleness
+  0.2, consistency 0.2, feedback 0.1). An integrity failure must hurt more than
+  any other single signal — preserve that ordering if you retune.
+  `ReputationTracker` accumulates observations per peerId over a session.
+- **Cross-aggregator consistency** ([trust/consistency.ts](src/trust/consistency.ts)):
+  compares announced `salaryNullRate` (a scale-free quality ratio, not raw
+  totals which legitimately vary) against the **median** consensus (robust to a
+  lone liar). <3 aggregators → neutral 1.0 (don't condemn on thin evidence). A
+  broken salary regex surfaces here as an anomalous null-rate.
+- **Staleness probe** ([trust/staleness.ts](src/trust/staleness.ts)): samples N
+  old jobs and re-checks URLs via an **injectable `URLChecker`** (`(url) =>
+  'alive'|'dead'`). Production wires the real fetcher; tests inject a stub. A
+  checker that throws = indeterminate (skipped, doesn't inflate the rate).
+- **Feedback gossip** ([trust/feedback.ts](src/trust/feedback.ts)): tiny
+  `{jobId, reason, servedBy, at}` signals on one global topic
+  (`/kalthraxius/feedback/v1`). `FeedbackLedger` accumulates per-aggregator,
+  deduped by `(jobId, reason)` so one user can't spam one complaint. Drives the
+  feedback term of reputation.
+
+## Phase 7 quality gates (keep these passing)
+
+[trust.test.ts](src/__tests__/trust.test.ts): tampering any content field →
+hash mismatch; 100 jobs / 30 dead URLs → ~30% staleness; broken-regex
+aggregator scores lower than healthy; integrity dominates reputation.
+[trust-gossip.test.ts](src/__tests__/trust-gossip.test.ts) (libp2p e2e): a
+feedback signal reaches another peer within ~2 gossip cycles; a fabricated job
+gossiped to an aggregator is rejected while the clean one is stored.
 
 ---
 

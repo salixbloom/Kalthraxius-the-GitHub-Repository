@@ -63,6 +63,7 @@ describe('AggregatorNode — gossip to index', () => {
       search,
       platforms: PLATFORMS,
       announceIntervalMs: 60_000,
+      verifyContentHash: false,
     })
 
     try {
@@ -100,7 +101,7 @@ describe('AggregatorNode — gossip to index', () => {
     const [aggNode, ...scrapers] = nodes as KalthraxiusNode[]
     const store = new SqliteAggregatorStore(storePath)
     const search = new SqliteSearchIndex(searchPath)
-    const agg = new AggregatorNode({ node: aggNode, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000 })
+    const agg = new AggregatorNode({ node: aggNode, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000, verifyContentHash: false })
 
     try {
       await agg.start()
@@ -129,7 +130,7 @@ describe('AggregatorNode — DHT announcement matches DB state', () => {
     const [aggNode, other] = nodes as KalthraxiusNode[]
     const store = new SqliteAggregatorStore(storePath)
     const search = new SqliteSearchIndex(searchPath)
-    const agg = new AggregatorNode({ node: aggNode, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000 })
+    const agg = new AggregatorNode({ node: aggNode, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000, verifyContentHash: false })
 
     try {
       // Seed the store directly, then announce.
@@ -162,7 +163,7 @@ describe('AggregatorNode — restart, no data loss', () => {
       const search = new SqliteSearchIndex(searchPath)
       // No libp2p needed to prove store persistence; ingest directly.
       const nodes = await spawnConnectedCluster(1)
-      const agg = new AggregatorNode({ node: nodes[0]!, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000 })
+      const agg = new AggregatorNode({ node: nodes[0]!, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000, verifyContentHash: false })
       agg.ingest(makeJob({ contentHash: 'persist-1', url: 'u1' }))
       agg.ingest(makeJob({ contentHash: 'persist-2', url: 'u2' }))
       expect(store.count()).toBe(2)
@@ -177,7 +178,7 @@ describe('AggregatorNode — restart, no data loss', () => {
       const store = new SqliteAggregatorStore(storePath)
       const search = new SqliteSearchIndex(searchPath)
       const nodes = await spawnConnectedCluster(1)
-      const agg = new AggregatorNode({ node: nodes[0]!, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000 })
+      const agg = new AggregatorNode({ node: nodes[0]!, store, search, platforms: PLATFORMS, announceIntervalMs: 60_000, verifyContentHash: false })
       try {
         expect(store.count()).toBe(2)
         expect(store.has('persist-1') && store.has('persist-2')).toBe(true)

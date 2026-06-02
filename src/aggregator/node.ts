@@ -7,6 +7,7 @@ import { publishBloom } from './bloom-gossip.js'
 import { queryLocal } from '../query/local.js'
 import { provideAggregator } from '../query/discovery.js'
 import { registerQueryHandler } from '../query/protocol.js'
+import { verifyIntegrity } from '../job-hash.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 import type { RawJob } from '../types.js'
 import type { AggregatorStore } from './store.js'
@@ -23,6 +24,11 @@ export interface AggregatorNodeOptions {
   announceIntervalMs?: number
   /** Target false-positive rate for the broadcast bloom filter. Default 0.01. */
   bloomFpRate?: number
+  /**
+   * Verify each ingested job's content hash and reject mismatches (Phase 7).
+   * Default true. Set false for fixtures/tests that use placeholder hashes.
+   */
+  verifyContentHash?: boolean
 }
 
 /**
@@ -45,10 +51,12 @@ export class AggregatorNode {
   private platforms: string[]
   private announceIntervalMs: number
   private bloomFpRate: number
+  private verifyContentHash: boolean
 
   private unsubscribers: Array<() => void> = []
   private announceTimer: NodeJS.Timeout | null = null
   private unregisterQuery: (() => Promise<void>) | null = null
+  private rejectedCount = 0
   private started = false
 
   constructor(opts: AggregatorNodeOptions) {
@@ -58,6 +66,7 @@ export class AggregatorNode {
     this.platforms = opts.platforms ?? loadPlatforms()
     this.announceIntervalMs = opts.announceIntervalMs ?? 30_000
     this.bloomFpRate = opts.bloomFpRate ?? 0.01
+    this.verifyContentHash = opts.verifyContentHash ?? true
   }
 
   /** Subscribe to all platform topics and begin periodic announcing. */
@@ -88,16 +97,31 @@ export class AggregatorNode {
   }
 
   /**
-   * Ingest a single raw job: enrich, persist, index. Idempotent by content
-   * hash — gossip delivers the same job from multiple scrapers, and this
-   * collapses them to one stored record. Exposed (not just used by the
-   * subscription) so callers/tests can feed jobs directly.
+   * Ingest a single raw job: verify integrity, enrich, persist, index.
+   * Idempotent by content hash — gossip delivers the same job from multiple
+   * scrapers, and this collapses them to one stored record. Exposed (not just
+   * used by the subscription) so callers/tests can feed jobs directly.
+   *
+   * Content-hash integrity (Phase 7): a job whose content does not match its
+   * claimed hash was fabricated or tampered with in transit; it is REJECTED
+   * (not stored) and counted. This is the tamper-proof gate at the index
+   * boundary. `verifyContentHash: false` disables it (e.g. fixtures that don't
+   * compute real hashes).
    */
-  ingest(job: RawJob): 'inserted' | 'updated' {
+  ingest(job: RawJob): 'inserted' | 'updated' | 'rejected' {
+    if (this.verifyContentHash && !verifyIntegrity(job).ok) {
+      this.rejectedCount++
+      return 'rejected'
+    }
     const enrichment = enrichJob(job)
     const result = this.store.upsert({ job, enrichment })
     this.search.index({ job, enrichment })
     return result
+  }
+
+  /** Count of jobs rejected for failing content-hash integrity. */
+  get rejected(): number {
+    return this.rejectedCount
   }
 
   /** Publish the DHT announcement and bloom broadcast reflecting current state. */
