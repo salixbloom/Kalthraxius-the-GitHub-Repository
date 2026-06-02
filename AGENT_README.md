@@ -8,12 +8,11 @@ Kalthraxius is a decentralized, qualification-first job search network: many
 cheap scraper nodes coordinate over libp2p; aggregator nodes index and serve
 queries; users get back only jobs they qualify for. Node.js + TypeScript.
 
-**Phase status:** Phases 1–7 are built and green — scraper core, libp2p
+**Phase status:** ALL phases (1–8) are built and green — scraper core, libp2p
 identity, DHT + GossipSub + coordination, enrichment, the aggregator node, the
-query layer, and trust & reputation. Next up is Phase 8 (hardening: stealth
-scraping, batched schema-migration job, descriptor-validator CLI, formalized
-50-node churn stress suite). The Phase 3 DHT churn test is a HARD GATE and
-passes.
+query layer, trust & reputation, and hardening. The plan is complete; further
+work is the "ongoing" hardening track (Phase 8) and operational concerns. The
+Phase 3 DHT churn test is a HARD GATE and passes.
 
 ## Commands
 
@@ -278,6 +277,62 @@ aggregator scores lower than healthy; integrity dominates reputation.
 [trust-gossip.test.ts](src/__tests__/trust-gossip.test.ts) (libp2p e2e): a
 feedback signal reaches another peer within ~2 gossip cycles; a fabricated job
 gossiped to an aggregator is rejected while the clean one is stored.
+
+---
+
+## Phase 8 hardening: architecture & invariants
+
+The "ongoing" hardening track (PLAN.md Phase 8).
+
+- **HTML→RawJob extractor** ([extractor.ts](src/extractor.ts)) — this filled a
+  real gap: the fetcher returned raw HTML but NOTHING parsed it into jobs.
+  `extractJobs(html, descriptor)` applies the descriptor's CSS selectors via
+  Playwright's Chromium (`page.setContent`, no new dep) and **stamps the
+  canonical `contentHash`** (via [job-hash.ts](src/job-hash.ts)) on every job —
+  this is what makes a real scraper's output pass the Phase 7 integrity gate.
+  Production scrapers MUST route extraction through here (or call `stampHashes`)
+  so jobs carry a verifiable hash. Pass a shared `browser` to amortise launch.
+- **Stealth fetcher** ([stealth-fetcher.ts](src/stealth-fetcher.ts)) — adds
+  `playwright-extra` + `puppeteer-extra-plugin-stealth` (the only new prod deps
+  this phase — NOT part of the pinned libp2p tree, fine to update), plus timing
+  jitter, UA rotation, and a `ProxyRotator` adapter (`StaticProxyRotator`
+  round-robins a pool). `fetchHardened` is the drop-in replacement for
+  `fetcher.fetch`. The plain [fetcher.ts](src/fetcher.ts) remains for simple
+  fetches.
+- **Batched migration job** ([enrichment/migration-job.ts](src/enrichment/migration-job.ts))
+  — thin wrapper over the existing enrichment worker (the
+  `WHERE schema_version < CURRENT` mechanism already existed since Phase 4).
+  `runMigration` drives re-enrichment in observable, resumable, transactional
+  batches with progress callbacks. A bump of `ENRICHMENT_SCHEMA_VERSION` + this
+  job = the full schema-migration story.
+- **Descriptor validator** ([descriptor-validator.ts](src/descriptor-validator.ts)
+  + CLI [scripts/validate-descriptor.ts](scripts/validate-descriptor.ts), `npm
+  run validate-descriptor`) — dry-scrapes a page, reports per-selector health;
+  a broken REQUIRED selector (jobList/jobLink/title) → `ok:false` → CLI exit 1
+  (a CI gate for descriptor edits). Optional selectors (salary/postedAt) → warn.
+- **Churn stress suite** ([churn-stress.test.ts](src/__tests__/churn-stress.test.ts))
+  — formalizes the 50-node/30-min soak. **Opt-in** (skipped unless `CHURN_STRESS`
+  is set; `=full` → 50 nodes/30 min, `=1` → 12 nodes/60s). The every-run
+  correctness gate stays in [churn.test.ts](src/__tests__/churn.test.ts).
+
+**Browser-dependent tests skip gracefully.** [extractor.test.ts](src/__tests__/extractor.test.ts)
+probes `browserAvailable()` ([helpers/browser.ts](src/__tests__/helpers/browser.ts))
+and skips if Chromium can't launch (e.g. bare WSL without Playwright's system
+libs — run `npx playwright install-deps chromium`, needs root). The live
+stealth bot-detection check is gated behind `RUN_STEALTH=1`. So a default
+`npm test` is green everywhere; the browser/stealth paths are exercised where
+the environment supports them. The extractor/validator LOGIC is typecheck-
+verified regardless.
+
+## Phase 8 quality gates
+
+[migration-job.test.ts](src/__tests__/migration-job.test.ts): 1000 records at
+v1, bump to v2, all migrate with no corruption; resumable; no-op when nothing
+stale. [stealth-fetcher.test.ts](src/__tests__/stealth-fetcher.test.ts): jitter
+bounds, proxy round-robin (+ gated live webdriver-masking check).
+[extractor.test.ts](src/__tests__/extractor.test.ts) (browser-gated): selector
+extraction + content-hash stamping; validator reports BROKEN on a broken
+required selector, WARN on a missing optional one.
 
 ---
 

@@ -7,7 +7,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc",
-    "download-esco-skills": "node --experimental-strip-types scripts/download-esco-skills.ts"
+    "download-esco-skills": "node --experimental-strip-types scripts/download-esco-skills.ts",
+    "validate-descriptor": "node --experimental-strip-types scripts/validate-descriptor.ts"
   },
   "repository": {
     "type": "git",
@@ -26,6 +27,7 @@
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "14.1.2",
     "@chainsafe/libp2p-noise": "16.1.5",
+    "@chainsafe/libp2p-yamux": "7.0.2",
     "@libp2p/bootstrap": "11.0.47",
     "@libp2p/circuit-relay-v2": "3.2.24",
     "@libp2p/crypto": "5.1.18",
@@ -34,11 +36,12 @@
     "@libp2p/peer-id": "5.1.9",
     "@libp2p/ping": "2.0.37",
     "@libp2p/tcp": "10.1.19",
-    "@chainsafe/libp2p-yamux": "7.0.2",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.10.0",
     "libp2p": "2.10.0",
     "playwright": "^1.60.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "undici": "^8.3.0"
   }
 }
