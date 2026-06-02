@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import type { RawJob } from './types.js'
+import { migrate } from './migrations.js'
 
 interface CacheOptions {
   dbPath: string
@@ -18,25 +19,12 @@ export class JobCache {
     this.db = new Database(dbPath)
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
-    this.init()
+    migrate(this.db)
   }
 
-  private init() {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS jobs (
-        content_hash TEXT PRIMARY KEY,
-        platform_id  TEXT NOT NULL,
-        url          TEXT NOT NULL,
-        title        TEXT NOT NULL,
-        company      TEXT NOT NULL,
-        location     TEXT NOT NULL,
-        description  TEXT NOT NULL,
-        salary       TEXT,
-        posted_at    TEXT,
-        scraped_at   INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_scraped_at ON jobs (scraped_at);
-    `)
+  /** Exposes the underlying connection so the enrichment store can share it. */
+  get connection(): Database.Database {
+    return this.db
   }
 
   upsert(job: RawJob): 'inserted' | 'duplicate' {

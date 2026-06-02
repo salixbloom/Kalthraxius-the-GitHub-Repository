@@ -6,3 +6,7 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+
+# Generated ESCO taxonomy (produced by `npm run download-esco-skills`).
+# The hand-curated seed (data/skills-seed.json) IS committed; this merge file is not.
+data/skills-esco.json

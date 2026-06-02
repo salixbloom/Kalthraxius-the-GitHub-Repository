@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc"
+    "build": "tsc",
+    "download-esco-skills": "node --experimental-strip-types scripts/download-esco-skills.ts"
   },
   "repository": {
     "type": "git",
