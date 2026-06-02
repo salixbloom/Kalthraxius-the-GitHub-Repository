@@ -4,10 +4,14 @@ import { loadPlatforms } from '../platforms.js'
 import { announceAggregator } from './announce.js'
 import { BloomFilter } from './bloom.js'
 import { publishBloom } from './bloom-gossip.js'
+import { queryLocal } from '../query/local.js'
+import { provideAggregator } from '../query/discovery.js'
+import { registerQueryHandler } from '../query/protocol.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 import type { RawJob } from '../types.js'
 import type { AggregatorStore } from './store.js'
 import type { SearchIndex } from './search.js'
+import type { QueryProfile, ScoredHit } from '../query/types.js'
 
 export interface AggregatorNodeOptions {
   node: KalthraxiusNode
@@ -44,6 +48,7 @@ export class AggregatorNode {
 
   private unsubscribers: Array<() => void> = []
   private announceTimer: NodeJS.Timeout | null = null
+  private unregisterQuery: (() => Promise<void>) | null = null
   private started = false
 
   constructor(opts: AggregatorNodeOptions) {
@@ -66,6 +71,11 @@ export class AggregatorNode {
       )
       this.unsubscribers.push(unsub)
     }
+
+    // Serve queries: register the request/response handler so clients can fan
+    // out to us, and provide the rendezvous CID so they can discover us.
+    this.unregisterQuery = await registerQueryHandler(this.node, profile => this.query(profile))
+    await provideAggregator(this.node.services.dht).catch(() => {})
 
     // Announce once immediately so the node is discoverable without waiting a
     // full interval, then on a timer.
@@ -95,6 +105,8 @@ export class AggregatorNode {
     const peerId = this.node.peerId.toString()
     const stats = this.store.stats()
     await announceAggregator(this.node.services.dht, peerId, stats)
+    // Refresh the rendezvous provider record so discovery stays live.
+    await provideAggregator(this.node.services.dht).catch(() => {})
 
     const filter = BloomFilter.fromHashes(this.store.allHashes(), this.bloomFpRate)
     await publishBloom(this.node.services.pubsub, peerId, filter)
@@ -104,11 +116,20 @@ export class AggregatorNode {
     return this.store.stats()
   }
 
+  /** Run a query against this aggregator's local store (filter → score → rank). */
+  query(profile: QueryProfile): ScoredHit[] {
+    return queryLocal(this.store, profile)
+  }
+
   /** Stop subscriptions and the announce timer. Does not close store/search. */
   async stop(): Promise<void> {
     if (this.announceTimer) {
       clearInterval(this.announceTimer)
       this.announceTimer = null
+    }
+    if (this.unregisterQuery) {
+      await this.unregisterQuery().catch(() => {})
+      this.unregisterQuery = null
     }
     for (const unsub of this.unsubscribers) unsub()
     this.unsubscribers = []

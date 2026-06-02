@@ -33,6 +33,9 @@ export class PostgresAggregatorStore implements AggregatorStore {
   allHashes(): string[] {
     throw new Error(NOT_IMPLEMENTED)
   }
+  all(_limit?: number): IndexedJob[] {
+    throw new Error(NOT_IMPLEMENTED)
+  }
   stats(): AggregatorStats {
     throw new Error(NOT_IMPLEMENTED)
   }

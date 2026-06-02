@@ -35,6 +35,12 @@ export interface AggregatorStore {
   has(contentHash: string): boolean
   /** All content hashes currently held (drives the bloom filter). */
   allHashes(): string[]
+  /**
+   * All indexed jobs, newest-scraped first, optionally capped. Drives local
+   * query execution. `limit` bounds how many candidates the query engine sees;
+   * omit for everything.
+   */
+  all(limit?: number): IndexedJob[]
   stats(): AggregatorStats
   count(): number
   close(): void

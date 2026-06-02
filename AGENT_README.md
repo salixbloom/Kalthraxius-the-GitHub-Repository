@@ -8,11 +8,12 @@ Kalthraxius is a decentralized, qualification-first job search network: many
 cheap scraper nodes coordinate over libp2p; aggregator nodes index and serve
 queries; users get back only jobs they qualify for. Node.js + TypeScript.
 
-**Phase status:** Phases 1–5 are built and green — scraper core, libp2p
-identity, DHT + GossipSub + coordination, the enrichment pipeline, and the
-aggregator node. Next up is Phase 6 (query layer: user profiles, hard-filter →
-score → rank, REST/SSE, K=6 fan-out). The Phase 3 DHT churn test is a HARD GATE
-and passes.
+**Phase status:** Phases 1–6 are built and green — scraper core, libp2p
+identity, DHT + GossipSub + coordination, the enrichment pipeline, the
+aggregator node, and the query layer (filter → score → rank, K=6 fan-out,
+REST/SSE). Next up is Phase 7 (trust & reputation: content-hash integrity
+checks, cross-aggregator stat comparison, staleness probe, feedback gossip,
+client reputation scoring). The Phase 3 DHT churn test is a HARD GATE and passes.
 
 ## Commands
 
@@ -164,6 +165,66 @@ scrapers dedups to one; the DHT announcement's stats equal the store's; a
 restart recovers all jobs and keeps ingesting. Bloom correctness (no false
 negatives, FP rate near target, wire round-trip) in
 [bloom.test.ts](src/__tests__/bloom.test.ts).
+
+---
+
+## Phase 6 query layer: architecture & invariants
+
+The query layer ([src/query/](src/query/)) is the consumer-facing path. Guiding
+principle (from the project owner): **the user controls what they see — we serve
+intent, we don't gatekeep.**
+
+- **`QueryProfile`** ([query/types.ts](src/query/types.ts)) — every filter bound
+  is OPTIONAL; absent = no filtering on that axis.
+  - `yoeMax?` is a **user-chosen ceiling, not a cap we infer**. "I have 3 YOE but
+    show me 5+" is valid: they set `yoeMax: 8` and see those jobs. Never derive a
+    YOE limit from the user's actual experience.
+  - `includeUnknown` (default **true**): a job whose enriched field is `null`
+    passes filters touching that field (don't punish a job for our extraction
+    gap). When `false`, a null on any *filtered* field excludes the job. A null
+    on an *unfiltered* axis never matters. Passing-on-null is surfaced as
+    `qualification: 'assumed'` vs `'confirmed'` on each hit — the UI can badge
+    it, but we never hide it.
+  - **Skills NEVER exclude.** Stack overlap drives the SCORE only; a zero-overlap
+    job still appears (ranked lower). This is deliberate — not our job to decide
+    a job is irrelevant.
+- **Pipeline** ([query/engine.ts](src/query/engine.ts)): hard filter → score
+  (normalised stack overlap) → rank. Ranking = `overlap*10 + freshness`, so a
+  strong skill match always outranks mere recency. Freshness decays linearly to
+  0 at 60 days (the "60+ day penalty"): a 2-day posting outranks an identical
+  90-day one. Engine is pure/sync — aggregators run it locally; the client
+  re-merges.
+- **Distributed query path:**
+  - Discovery ([query/discovery.ts](src/query/discovery.ts)): all aggregators
+    `provide` ONE well-known rendezvous CID; clients `findProviders` to
+    **enumerate** the live set (no peer id needed up front). Provider records are
+    refreshed on the announce timer.
+  - Protocol ([query/protocol.ts](src/query/protocol.ts)): `/kalthraxius/query/1.0.0`,
+    one length-prefixed JSON round-trip (`lpStream`), 1 MB cap, timeouts on both
+    sides. Aggregator registers the handler in `AggregatorNode.start()`.
+  - Fan-out ([query/client.ts](src/query/client.ts)): query **K=6** peers in
+    parallel, **dedup by content hash** (keep higher score), merge + re-rank.
+    `queryStream` yields hits in arrival order (first result as soon as the
+    fastest peer answers → SSE <200ms) and **fails over**: a peer that throws is
+    recorded in `failed` and replaced from spare discovered peers.
+  - Gateway ([query/server.ts](src/query/server.ts)): stdlib `http` only (no
+    framework). `POST /query` (JSON) and `GET|POST /query/stream` (SSE:
+    `event: hit` per result, `event: done` with the answered/failed summary).
+- **Gotcha already paid for:** an aggregator's `stop()` (and the gossip
+  unsubscribe in [gossip.ts](src/gossip.ts)) must tolerate the underlying libp2p
+  node already being stopped — `pubsub.unsubscribe` throws "Pubsub is not
+  started" otherwise. The unsubscribe is wrapped in try/catch; preserve that, it
+  models a real crashed-node path.
+
+## Phase 6 quality gates (keep these passing)
+
+Engine unit tests in [query-engine.test.ts](src/__tests__/query-engine.test.ts)
+(5 profiles, yoeMax/salary exclusion, includeUnknown toggle, freshness ranking,
+skills-never-exclude). Distributed gates in
+[query-fanout.test.ts](src/__tests__/query-fanout.test.ts): same job on 3
+aggregators returns once (dedup), dead aggregator doesn't block live ones
+(failover), DHT discovery finds aggregators, first SSE hit arrives fast, REST
+returns merged JSON.
 
 ---
 

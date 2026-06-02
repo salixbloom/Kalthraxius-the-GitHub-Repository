@@ -111,6 +111,15 @@ export class SqliteAggregatorStore implements AggregatorStore {
     return rows.map(r => r.content_hash)
   }
 
+  all(limit?: number): IndexedJob[] {
+    const sql =
+      'SELECT * FROM indexed_jobs ORDER BY scraped_at DESC' +
+      (limit !== undefined ? ' LIMIT ?' : '')
+    const stmt = this.db.prepare(sql)
+    const rows = (limit !== undefined ? stmt.all(limit) : stmt.all()) as Record<string, unknown>[]
+    return rows.map(rowToIndexed)
+  }
+
   stats(): AggregatorStats {
     const total = this.count()
     const byPlatformRows = this.db

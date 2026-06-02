@@ -32,6 +32,12 @@ export function subscribeToJobs(
 
   return () => {
     pubsub.removeEventListener('message', listener as EventListener)
-    pubsub.unsubscribe(topic)
+    // Tolerate the pubsub already being stopped (e.g. the node crashed/stopped
+    // out from under us) — unsubscribe throws "Pubsub is not started" otherwise.
+    try {
+      pubsub.unsubscribe(topic)
+    } catch {
+      // already stopped — nothing to unsubscribe
+    }
   }
 }
