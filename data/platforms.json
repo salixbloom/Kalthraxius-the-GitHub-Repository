@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "platforms": [
+    "greenhouse",
+    "lever",
+    "linkedin",
+    "ashby",
+    "workday",
+    "smartrecruiters",
+    "recruitee",
+    "workable"
+  ]
+}

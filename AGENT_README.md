@@ -8,9 +8,11 @@ Kalthraxius is a decentralized, qualification-first job search network: many
 cheap scraper nodes coordinate over libp2p; aggregator nodes index and serve
 queries; users get back only jobs they qualify for. Node.js + TypeScript.
 
-**Phase status:** Phases 1–3 (scraper core, libp2p identity, DHT + GossipSub +
-coordination) and Phase 4 (enrichment pipeline) are built and green. Next up is
-Phase 5 (aggregator node). The Phase 3 DHT churn test is a HARD GATE and passes.
+**Phase status:** Phases 1–5 are built and green — scraper core, libp2p
+identity, DHT + GossipSub + coordination, the enrichment pipeline, and the
+aggregator node. Next up is Phase 6 (query layer: user profiles, hard-filter →
+score → rank, REST/SSE, K=6 fan-out). The Phase 3 DHT churn test is a HARD GATE
+and passes.
 
 ## Commands
 
@@ -106,6 +108,62 @@ accuracy >90% on explicit titles, skills recall >80% on bullet lists,
 throughput >1000 jobs/min single-core, re-enrichment without corruption.
 **Instrument null rates from day one** (per the risk register: salary null >30%
 on any platform = the regex needs work).
+
+---
+
+## Phase 5 aggregator: architecture & invariants
+
+The aggregator ([src/aggregator/](src/aggregator/)) is the indexing/serving node:
+subscribes to every per-platform job topic, enriches each gossiped job on ingest
+(Phase 4 pipeline), persists + indexes it, and periodically announces itself.
+
+- **Storage is interface + adapters — the SQLite adapters are the working
+  default, PG/Meili are stubs:**
+  - `AggregatorStore` ([store.ts](src/aggregator/store.ts)) is the system of
+    record; `SearchIndex` ([search.ts](src/aggregator/search.ts)) is a derived,
+    rebuildable full-text index. They're separate on purpose — the store is
+    authoritative, the index can be rebuilt from it.
+  - `SqliteAggregatorStore` + `SqliteSearchIndex` (FTS5) run in-process and
+    offline; all aggregator logic and tests use them. `PostgresAggregatorStore`
+    and `MeiliSearchIndex` are **stubs that throw `NotImplemented`** — fill them
+    in when infra lands (env: `DATABASE_URL`, `MEILI_HOST`). Don't wire real
+    services into the default path.
+  - The aggregator DB is its **own** file, distinct from a scraper's `JobCache`.
+    It stores (raw + enrichment) as one unit (enrichment as a JSON column), so
+    there's no cross-table join.
+- **Dedup by content hash is the core invariant.** Gossip delivers the same job
+  from multiple scrapers; `store.upsert` and `search.index` are both idempotent
+  by `contentHash` (FTS5 has no UPSERT, so the index does delete-then-insert).
+  Never let a duplicate hash create two rows.
+- **Restart = no data loss.** Store/index are persistent SQLite files; a
+  restarted aggregator reopens them, recovers everything, and re-subscribes.
+- **Platform discovery is the static registry** ([data/platforms.json](data/platforms.json)
+  via [platforms.ts](src/platforms.ts)). The aggregator subscribes to one topic
+  per listed platform. Adding a platform = editing that JSON (fits Model A).
+- **DHT announcement** ([announce.ts](src/aggregator/announce.ts)): publishes
+  `role:aggregator` + self-reported `AggregatorStats` under a `kalthraxius`-keyed
+  DHT record. Stats are **self-reported and untrusted** — Phase 7 verifies them.
+  The only guarantee here is they match the node's own DB at publish time.
+- **Bloom gossip** ([bloom.ts](src/aggregator/bloom.ts) +
+  [bloom-gossip.ts](src/aggregator/bloom-gossip.ts)): periodic broadcast of a
+  bloom filter over the held content-hash set on one global topic
+  (`/kalthraxius/aggregator/bloom/v1`). **False positives are fine, false
+  negatives are not** — the filter must never deny a hash it actually holds.
+  Dependency-free (double-hashing into a packed bit array); serialized with a
+  small header for the wire.
+- The announce timer is `unref()`'d so it can't keep the process alive on its
+  own; `AggregatorNode.stop()` clears it and unsubscribes but does **not** close
+  the store/search (the caller owns their lifecycle).
+
+## Phase 5 quality gates (keep these passing)
+
+In [aggregator-node.test.ts](src/__tests__/aggregator-node.test.ts) (libp2p e2e)
+and [aggregator-store.test.ts](src/__tests__/aggregator-store.test.ts): all jobs
+gossiped by 3 scrapers across platforms get indexed; the same job from multiple
+scrapers dedups to one; the DHT announcement's stats equal the store's; a
+restart recovers all jobs and keeps ingesting. Bloom correctness (no false
+negatives, FP rate near target, wire round-trip) in
+[bloom.test.ts](src/__tests__/bloom.test.ts).
 
 ---
 
