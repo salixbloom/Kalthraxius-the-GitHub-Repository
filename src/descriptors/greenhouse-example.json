@@ -1,0 +1,25 @@
+{
+  "id": "greenhouse-stripe",
+  "name": "Stripe (Greenhouse)",
+  "baseUrl": "https://boards.greenhouse.io/stripe",
+  "fetcherMode": "http",
+  "rateLimit": {
+    "requestsPerMinute": 20
+  },
+  "pagination": {
+    "type": "offset",
+    "pageParam": "page",
+    "pageSize": 25,
+    "maxPages": 10
+  },
+  "selectors": {
+    "jobList": ".opening",
+    "jobLink": "a",
+    "title": ".opening a",
+    "company": ".company-name",
+    "location": ".location",
+    "description": "#content",
+    "salary": null,
+    "postedAt": null
+  }
+}
