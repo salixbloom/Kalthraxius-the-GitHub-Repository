@@ -5,30 +5,22 @@ nodes coordinate over libp2p to crawl public job postings; a federated layer of
 aggregator nodes indexes and enriches them; users query aggregators and get back
 only the jobs they actually qualify for.
 
-> **Status:** all eight build phases are complete and tested. See
-> [PLAN.md](PLAN.md) for the design and [AGENT_README.md](AGENT_README.md) for
-> the non-obvious internals and gotchas.
+Everything is TypeScript on Node, P2P via libp2p (Kademlia DHT + GossipSub,
+Noise encryption, Ed25519 identities).
 
----
+> **Status:** all eight build phases are complete and tested.
 
-## Table of contents
+## Documentation
 
-- [How it works](#how-it-works)
-- [Requirements](#requirements)
-- [Install](#install)
-- [Quick start: a local 3-node network](#quick-start-a-local-3-node-network)
-- [Node roles](#node-roles)
-  - [Scraper](#scraper)
-  - [Aggregator](#aggregator)
-  - [Query client](#query-client)
-  - [HTTP / SSE gateway](#http--sse-gateway)
-- [Writing a platform descriptor](#writing-a-platform-descriptor)
-- [Enrichment](#enrichment)
-- [Trust & reputation](#trust--reputation)
-- [CLIs & scripts](#clis--scripts)
-- [Configuration reference](#configuration-reference)
-- [Testing](#testing)
-- [Security notes](#security-notes)
+| Doc | What's in it |
+|---|---|
+| **[Wiki → Home](wiki/Home.md)** | Operational docs hub. |
+| **[Wiki → Deployment](wiki/Deployment.md)** | Running nodes: bare-metal/systemd, Docker, Compose, Kubernetes — plus the env-var reference, persistence, and networking notes. |
+| [PLAN.md](PLAN.md) | Design rationale and phase-by-phase detail. |
+| [AGENT_README.md](AGENT_README.md) | Internal invariants, gotchas, and the pinned-dependency rationale. |
+
+This README covers **what it is** and **how to use the API**. For *running* and
+*configuring* nodes, go to the [Deployment](wiki/Deployment.md) page.
 
 ---
 
@@ -62,40 +54,37 @@ only the jobs they actually qualify for.
    dedup by content hash, and merge a ranked result — over a libp2p protocol or
    an HTTP/SSE gateway.
 
-Everything is TypeScript on Node, P2P via libp2p (Kademlia DHT + GossipSub,
-Noise encryption, Ed25519 identities).
-
 ---
 
-## Requirements
-
-- **Node.js ≥ 20** (developed on Node 24; uses `--experimental-strip-types` for
-  the CLIs, native ESM with `.js` import specifiers).
-- A C toolchain for `better-sqlite3` (native module).
-- **Playwright Chromium** only if you use browser-mode scraping/extraction:
-  `npx playwright install chromium` (and `npx playwright install-deps chromium`
-  on Linux, which needs root).
-
----
-
-## Install
+## Install & run
 
 ```bash
-npm install
+npm ci          # exact, locked deps (see AGENT_README on why `ci`, not `install`)
+npm run build   # tsc → dist/
+npm test        # full vitest suite
+
 # optional, for browser-mode scraping / the descriptor validator:
-npx playwright install chromium
+npx playwright install chromium   # + `install-deps chromium` on Linux (needs root)
 ```
 
-There is no build step required to run via the CLIs (they strip types at
-runtime). To emit JS: `npm run build` (outputs to `dist/`).
+Requires **Node.js ≥ 20** (tested on Node 24) and a C toolchain for the
+`better-sqlite3` native module. To run a node as a long-lived process, use the
+role entrypoints (`npm run start:aggregator`, etc.) — see
+[Deployment](wiki/Deployment.md).
 
 ---
 
-## Quick start: a local 3-node network
+## Using the API
 
-This wires an aggregator + a scraper + a query client in one process — the same
-pattern the integration tests use. Loopback addresses require
-`allowPrivateAddresses: true`.
+A Kalthraxius process is a libp2p node (`createNode`) plus whichever role module
+you attach. One process can be a scraper, an aggregator, a client, or several at
+once. The snippets below are the building blocks; the
+[Deployment](wiki/Deployment.md) page wires them into runnable services.
+
+### Quick start: a local 3-node network
+
+Wires an aggregator + a scraper + a query client in one process (the pattern the
+integration tests use). Loopback addresses require `allowPrivateAddresses: true`.
 
 ```ts
 import { generateIdentity } from './src/identity.js'
@@ -111,25 +100,23 @@ const LISTEN = ['/ip4/127.0.0.1/tcp/0']
 const spawn = async () =>
   createNode({ privateKey: await generateIdentity(), listenAddresses: LISTEN, allowPrivateAddresses: true })
 
-// 1. Three nodes: aggregator, scraper, client.
+// Three nodes, dialed together so the DHT + gossip meshes form.
 const [aggNode, scraperNode, clientNode] = await Promise.all([spawn(), spawn(), spawn()])
 await Promise.all([aggNode.start(), scraperNode.start(), clientNode.start()])
-
-// 2. Dial them together so the DHT + gossip meshes form.
 for (const a of [aggNode, scraperNode, clientNode])
   for (const b of [aggNode, scraperNode, clientNode])
     if (a !== b) await a.dial(b.getMultiaddrs()[0]!).catch(() => {})
 await new Promise(r => setTimeout(r, 800))
 
-// 3. Start the aggregator (persists to SQLite files).
+// Aggregator (persists to SQLite files).
 const store = new SqliteAggregatorStore('agg-store.db')
 const search = new SqliteSearchIndex('agg-search.db')
 const agg = new AggregatorNode({ node: aggNode, store, search, platforms: ['greenhouse'] })
 await agg.start()
 await new Promise(r => setTimeout(r, 600))
 
-// 4. Scraper gossips a (hash-stamped) job.
-const job = stampHashes({
+// Scraper gossips a (hash-stamped) job.
+await publishJob(scraperNode.services.pubsub, stampHashes({
   platformId: 'greenhouse',
   url: 'https://boards.greenhouse.io/acme/jobs/1',
   title: 'Senior Backend Engineer',
@@ -139,10 +126,9 @@ const job = stampHashes({
   salary: '$150,000 - $180,000',
   postedAt: '2026-05-01',
   scrapedAt: Date.now(),
-})
-await publishJob(scraperNode.services.pubsub, job)
+}))
 
-// 5. Client queries — fan out to the aggregator.
+// Client queries — fan out to the aggregator.
 await new Promise(r => setTimeout(r, 1000))
 const client = new QueryClient(clientNode)
 const result = await client.query(
@@ -152,143 +138,109 @@ const result = await client.query(
 console.log(result.hits.map(h => `${h.job.job.title}  score=${h.score}`))
 ```
 
----
-
-## Node roles
-
-A Kalthraxius process is built from a libp2p node (`createNode`) plus whichever
-role module you attach. One process can be a scraper, an aggregator, a client,
-or several at once.
-
 ### Scraper
 
-A scraper fetches a board, extracts postings, and gossips them. The two core
-pieces are the **fetcher** and the **extractor**; coordination is the DHT
-scrape-claim.
+Fetch a board, extract postings, gossip them. Coordination is the DHT
+scrape-claim (so peers don't double-crawl).
 
 ```ts
-import { fetch } from './src/fetcher.js'              // plain undici/Playwright
-import { fetchHardened } from './src/stealth-fetcher.js' // stealth + jitter + proxy
+import { fetch } from './src/fetcher.js'                  // plain undici/Playwright
+import { fetchHardened } from './src/stealth-fetcher.js'  // stealth + jitter + proxy
 import { extractJobs } from './src/extractor.js'
 import { publishJob } from './src/gossip.js'
 import { claimTarget, hasActiveClaim } from './src/scrape-claim.js'
 
-// Avoid double-crawling: claim the target in the DHT first (TTL 30 min).
 const url = 'https://boards.greenhouse.io/acme'
 if (!(await hasActiveClaim(node.services.dht, descriptor.id, url))) {
   await claimTarget(node.services.dht, descriptor.id, url, node.peerId.toString(), 30 * 60_000)
-
-  const { html } = await fetch(url, descriptor)           // or fetchHardened(...)
-  const { jobs } = await extractJobs(html, descriptor)    // applies selectors, stamps contentHash
+  const { html } = await fetch(url, descriptor)        // or fetchHardened(...) for bot-detected boards
+  const { jobs } = await extractJobs(html, descriptor) // applies selectors, stamps contentHash
   for (const job of jobs) await publishJob(node.services.pubsub, job)
 }
 ```
 
-- **`fetch(url, descriptor)`** — undici for `fetcherMode: 'http'`, Playwright
-  Chromium for `'browser'`.
-- **`fetchHardened(url, descriptor, opts)`** — adds stealth (anti-bot), timing
-  jitter, UA rotation, and an optional `ProxyRotator`. Use it against boards
-  with bot detection.
-- **`extractJobs(html, descriptor)`** — turns HTML into `RawJob[]` via the
-  descriptor's CSS selectors and **stamps the canonical content hash** (so the
-  job passes an aggregator's integrity check). Pass a shared Playwright
-  `browser` to amortise launch across pages.
+- `fetch(url, descriptor)` — undici for `fetcherMode: 'http'`, Playwright Chromium for `'browser'`.
+- `fetchHardened(url, descriptor, opts)` — adds stealth (anti-bot), timing jitter, UA rotation, and an optional `ProxyRotator`.
+- `extractJobs(html, descriptor)` — HTML → `RawJob[]` via the descriptor's CSS selectors, stamping the canonical content hash so jobs pass an aggregator's integrity check.
 
 ### Aggregator
 
-An aggregator indexes the network and serves queries. It needs a libp2p node, a
-store, and a search index. The SQLite adapters are the working default
-(in-process, no external services); PostgreSQL + MeiliSearch adapters exist as
-production drop-ins.
+Indexes the network and serves queries. Needs a node, a store, and a search
+index. SQLite adapters are the working default; PostgreSQL + MeiliSearch adapters
+exist as production drop-ins.
 
 ```ts
 import { AggregatorNode } from './src/aggregator/node.js'
 import { SqliteAggregatorStore } from './src/aggregator/store-sqlite.js'
 import { SqliteSearchIndex } from './src/aggregator/search-sqlite.js'
 
-const store = new SqliteAggregatorStore('aggregator.db')
-const search = new SqliteSearchIndex('aggregator-search.db')
-
 const agg = new AggregatorNode({
-  node,                         // a started KalthraxiusNode
-  store,
-  search,
-  // platforms defaults to data/platforms.json; override to a subset if you like
-  platforms: ['greenhouse', 'lever', 'linkedin'],
-  announceIntervalMs: 30_000,   // DHT announce + bloom broadcast cadence
+  node,                                            // a started KalthraxiusNode
+  store: new SqliteAggregatorStore('aggregator.db'),
+  search: new SqliteSearchIndex('aggregator-search.db'),
+  platforms: ['greenhouse', 'lever', 'linkedin'],  // defaults to data/platforms.json
 })
-await agg.start()
-// ... runs until:
-await agg.stop()
-store.close()
-search.close()
+await agg.start()   // ... await agg.stop() / store.close() / search.close() to shut down
 ```
 
-What it does on `start()`: subscribes to every platform topic; for each gossiped
-job it **verifies the content hash** (rejecting fabricated/tampered jobs),
-enriches, persists, and indexes — deduped by content hash; registers the query
-protocol handler; and provides the `role:aggregator` rendezvous + announces
-stats + broadcasts a bloom filter of held hashes on a timer.
+On `start()` it subscribes to every platform topic; for each gossiped job it
+**verifies the content hash** (rejecting fabricated/tampered jobs), enriches,
+persists, and indexes — deduped by content hash; registers the query handler;
+and provides the `role:aggregator` rendezvous + announces stats + broadcasts a
+bloom filter on a timer. Restart-safe: reopen the same files and every job is
+recovered.
 
-Persistence is real: point the adapters at the same files after a restart and
-every job is recovered (no data loss).
-
-### Query client
+### Query client & HTTP/SSE gateway
 
 ```ts
 import { QueryClient } from './src/query/client.js'
-const client = new QueryClient(node)
+import { QueryServer } from './src/query/server.js'
 
-// One-shot: fan out, merge, return ranked results.
+const client = new QueryClient(node)
 const { hits, answered, failed } = await client.query({
   stack: ['python', 'aws'],   // skills — affect SCORE only, never exclude
   yoeMax: 8,                  // hide jobs requiring MORE than 8 years (optional)
   salaryFloor: 150_000,       // hide jobs whose salary max is below this (optional)
   location: 'remote',         // optional; 'remote' or a city
   includeUnknown: true,       // default; false hides jobs with a null filtered field
-  limit: 50,
 })
+// streaming variant: for await (const hit of client.queryStream({ stack: ['go'] })) { ... }
 
-// Streaming: yields hits as the fastest aggregators answer (first result fast).
-for await (const hit of client.queryStream({ stack: ['go'] })) {
-  console.log(hit.job.job.title)
-}
-```
-
-Discovery is automatic: omit `peers` and the client finds aggregators on the
-DHT rendezvous, queries up to **K=6** in parallel, dedups by content hash, and
-**fails over** to spare peers if some don't answer.
-
-**Query semantics (the user is in control):** filters only apply where you set a
-bound. `yoeMax` is a ceiling *you* choose, not a cap inferred from your
-experience — set it to your real years, higher ("show me 5+"), or omit it.
-Skills never exclude a job; they rank it. Each hit is tagged
-`qualification: 'confirmed' | 'assumed'` (`assumed` = a filtered field was null
-and `includeUnknown` let it through).
-
-### HTTP / SSE gateway
-
-Expose the query client over HTTP for non-libp2p consumers (a web UI, curl):
-
-```ts
-import { QueryServer } from './src/query/server.js'
-
-const server = new QueryServer(node)        // wraps a QueryClient
-const port = await server.listen(8080)
-// ... later: await server.close()
+// Or expose it over HTTP for non-libp2p consumers:
+const server = new QueryServer(node)
+await server.listen(8080)   // POST /query (JSON), GET|POST /query/stream (SSE)
 ```
 
 ```bash
-# REST: fan out, wait, return merged JSON.
-curl -s localhost:8080/query \
-  -H 'content-type: application/json' \
+curl -s localhost:8080/query -H 'content-type: application/json' \
   -d '{"stack":["python","django"],"yoeMax":6,"salaryFloor":120000}'
-
-# SSE: stream hits as they arrive (event: hit ...), then event: done with the summary.
-curl -N localhost:8080/query/stream \
-  -H 'content-type: application/json' \
-  -d '{"stack":["go","kubernetes"]}'
 ```
+
+Discovery is automatic (omit `peers` → DHT rendezvous), fan-out is **K=6** with
+dedup-by-hash and failover. **The user controls what they see:** filters apply
+only where you set a bound; `yoeMax` is a ceiling *you* choose, not a cap
+inferred from your experience; skills rank but never exclude; each hit is tagged
+`qualification: 'confirmed' | 'assumed'`.
+
+### Enrichment & trust
+
+```ts
+import { enrichJob } from './src/enrichment/enrich.js'
+import { verifyIntegrity } from './src/job-hash.js'
+import { ReputationTracker } from './src/trust/reputation.js'
+
+const enrichment = enrichJob(rawJob)  // { salary, yoe, seniority, skills, ... } + per-field confidences
+
+const tracker = new ReputationTracker()
+tracker.recordIntegrity(peerId, verifyIntegrity(job).ok)  // content-hash integrity is tamper-proof
+const score = tracker.score(peerId)                       // [0,1], higher = trust more
+```
+
+Enrichment is **classical NLP only** (regex, rule-based, curated taxonomy — no
+LLM); unknowns are `null` with confidence 0, never guessed. Individual extractors
+(`extractSalary`/`extractYoe`/`extractSeniority`/`extractSkills`) are usable
+standalone. Trust signals: content-hash **integrity** (weighted highest),
+**staleness** probe, cross-aggregator **consistency**, and **feedback** gossip.
 
 ---
 
@@ -319,70 +271,13 @@ the CSS selectors to extract each field. See
 }
 ```
 
-Validate a descriptor against a real (or saved) page before shipping it — see
-[`validate-descriptor`](#clis--scripts).
+Validate it against a real or saved page before shipping — the
+`validate-descriptor` CLI exits non-zero if a required selector is broken (a CI
+gate):
 
----
-
-## Enrichment
-
-Enrichment is **classical NLP only — regex, rule-based, curated taxonomy. No
-LLM.** It runs async and decoupled from ingest: raw lands immediately, enriched
-fields fill in behind.
-
-Aggregators enrich on ingest automatically. To drive it directly:
-
-```ts
-import { enrichJob } from './src/enrichment/enrich.js'
-const enrichment = enrichJob(rawJob)
-// → { salary, yoe, seniority, skills, schemaVersion, enrichedAt } with per-field confidences
+```bash
+npm run validate-descriptor src/descriptors/greenhouse-example.json --html sample.html
 ```
-
-Extractors are individually usable: `extractSalary`, `extractYoe`,
-`extractSeniority` (in `src/enrichment/`), and `extractSkills` (taxonomy +
-fuzzy matching). Unknown values are `null` with confidence 0 — never guessed.
-
-**Skills taxonomy** is a hand-curated seed ([data/skills-seed.json](data/skills-seed.json),
-committed) plus an optional ESCO merge — run
-[`download-esco-skills`](#clis--scripts) to raise recall.
-
-**Schema migrations:** bump `ENRICHMENT_SCHEMA_VERSION` in
-[src/types.ts](src/types.ts) when an extractor changes, then run the batched
-re-enrichment:
-
-```ts
-import { runMigration } from './src/enrichment/migration-job.js'
-const report = await runMigration(db, { batchSize: 200, onProgress: (n, total) => ... })
-```
-
----
-
-## Trust & reputation
-
-Clients can score aggregators so they prefer trustworthy ones. Content-hash
-integrity is the only tamper-proof signal and is weighted highest.
-
-```ts
-import { verifyIntegrity } from './src/job-hash.js'
-import { ReputationTracker } from './src/trust/reputation.js'
-import { probeStaleness } from './src/trust/staleness.js'
-import { scoreConsistency } from './src/trust/consistency.js'
-
-const tracker = new ReputationTracker()
-// On each received job, record whether its content hash verified:
-tracker.recordIntegrity(peerId, verifyIntegrity(job).ok)
-// Fold in other signals as you gather them:
-tracker.setConsistency(peerId, /* from scoreConsistency(announcements) */ 0.9)
-const score = tracker.score(peerId)   // [0,1], higher = trust more
-```
-
-- **Integrity** — recompute and compare the content hash; a mismatch = fabricated/tampered.
-- **Staleness probe** — sample old job URLs and re-check them via an injectable
-  `URLChecker` (`(url) => 'alive' | 'dead'`).
-- **Consistency** — compare an aggregator's announced stats against the peer
-  consensus (median).
-- **Feedback gossip** — broadcast `{ jobId, reason }` signals; a `FeedbackLedger`
-  accumulates them per aggregator.
 
 ---
 
@@ -390,75 +285,21 @@ const score = tracker.score(peerId)   // [0,1], higher = trust more
 
 | Command | What it does |
 |---|---|
-| `npm test` | Run the full vitest suite. |
+| `npm test` / `npx tsc --noEmit` | Full vitest suite / type-check. |
 | `npm run build` | Type-check and emit JS to `dist/`. |
-| `npm run validate-descriptor <descriptor.json> [--url <u>] [--html <file>]` | Dry-scrape a page and report per-selector health. Exits **1** if a required selector is broken — usable as a CI gate. `--html` validates a saved file offline. |
-| `npm run download-esco-skills` | Download + trim the ESCO skills dataset into `data/skills-esco.json` (merged into the taxonomy at runtime). Set `ESCO_CSV_URL` or `ESCO_CSV_FILE`. |
+| `npm run start:aggregator` · `start:scraper` · `start:aggregator-scraper` | Run a role as a long-lived process (see [Deployment](wiki/Deployment.md)). |
+| `npm run validate-descriptor <descriptor.json> [--url u] [--html file]` | Dry-scrape, report per-selector health, exit 1 on a broken required selector. |
+| `npm run download-esco-skills` | Trim the ESCO skills dataset into `data/skills-esco.json` (merged into the taxonomy). Set `ESCO_CSV_URL` or `ESCO_CSV_FILE`. |
 
-```bash
-# validate a descriptor against a saved page (no network):
-npm run validate-descriptor src/descriptors/greenhouse-example.json --html sample.html
-```
-
----
-
-## Configuration reference
-
-| Where | Option | Default | Notes |
-|---|---|---|---|
-| `createNode` | `allowPrivateAddresses` | `false` | **Set `true` for local/loopback clusters** (tests, dev), else the DHT routing table won't populate. Leave `false` in production. |
-| `createNode` | `bootstrapAddresses` | – | Multiaddrs of known peers to bootstrap from. |
-| `AggregatorNode` | `platforms` | `data/platforms.json` | Which per-platform topics to subscribe to. |
-| `AggregatorNode` | `announceIntervalMs` | `30000` | DHT announce + bloom broadcast cadence. |
-| `AggregatorNode` | `verifyContentHash` | `true` | Reject jobs whose content hash doesn't match. Set `false` only for fixtures with placeholder hashes. |
-| `QueryClient.query` | `k` | `6` | Fan-out breadth. |
-| `QueryClient.query` | `peers` | – | Explicit peers; omit to discover via the DHT. |
-| `fetchHardened` | `proxies`, `jitterMs`, `userAgents` | – | Stealth/proxy/jitter knobs. |
-| Env | `DATABASE_URL`, `MEILI_HOST` | – | For the (stubbed) Postgres/Meili aggregator adapters. |
-| Env | `RUN_STEALTH=1` | – | Enables the live bot-detection test. |
-| Env | `CHURN_STRESS=1\|full` | – | Enables the opt-in DHT churn soak (`full` = 50 nodes / 30 min). |
-
-Identities persist across restarts:
-
-```ts
-import { generateIdentity, saveIdentity, loadIdentity } from './src/identity.js'
-const id = await generateIdentity()
-saveIdentity(id, 'node.key')
-// next boot:
-const sameId = loadIdentity('node.key')   // same peer id, recognized by peers
-```
+Some tests are environment-gated: browser-driven tests skip where Chromium can't
+launch; `RUN_STEALTH=1` enables the live bot-detection check; `CHURN_STRESS=1|full`
+enables the DHT churn soak. The libp2p churn correctness gate runs on every `npm test`.
 
 ---
 
-## Testing
+## Security
 
-```bash
-npm test                      # full suite (vitest, forks pool for better-sqlite3)
-npx tsc --noEmit              # type-check (keep this clean)
-```
-
-Browser-driven tests (extractor/validator) **skip automatically** where Chromium
-can't launch; install Playwright deps to run them. The DHT churn soak and the
-live stealth check are env-gated (see the config table). The libp2p churn
-correctness gate runs on every `npm test`.
-
----
-
-## Security notes
-
-- **Transport** is encrypted and mutually authenticated (Noise + Ed25519). No
-  plaintext job data on the wire.
-- **Content integrity** — every job carries a content hash; aggregators reject
-  ones that don't verify, and clients can weight aggregators by their integrity
-  pass-rate.
-- **DHT hardening** — the record validator caps value size and enforces key/value
-  shape to prevent datastore-exhaustion floods
-  (advisory GHSA-32mq-hpph-xfvr; mitigated in-code — see
-  [AGENT_README.md](AGENT_README.md)). **Do not run `npm audit fix --force`** —
-  it would break the deliberately v2-pinned libp2p stack.
-
----
-
-For design rationale and phase-by-phase detail see [PLAN.md](PLAN.md); for
-internal invariants, gotchas, and the pinned-dependency rationale see
-[AGENT_README.md](AGENT_README.md).
+- **Transport** is encrypted and mutually authenticated (Noise + Ed25519) — no plaintext job data on the wire.
+- **Content integrity** — every job carries a content hash; aggregators reject ones that don't verify, and clients weight aggregators by integrity pass-rate.
+- **DHT hardening** — the record validator caps value size and enforces key/value shape against datastore-exhaustion floods (advisory GHSA-32mq-hpph-xfvr, mitigated in-code).
+- **Do not run `npm audit fix --force`** — it would break the deliberately v2-pinned libp2p stack. See [AGENT_README.md](AGENT_README.md).
