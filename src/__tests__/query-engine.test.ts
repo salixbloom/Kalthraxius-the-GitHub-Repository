@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { runQuery } from '../query/engine.js'
 import type { IndexedJob } from '../aggregator/store.js'
 import type { Enrichment, RawJob } from '../types.js'
@@ -13,6 +13,8 @@ function indexed(opts: {
   skills?: string[]
   location?: string
   ageDays?: number
+  postedAt?: string | null
+  scrapedAt?: number
 }): IndexedJob {
   const job: RawJob = {
     contentHash: opts.hash,
@@ -23,8 +25,8 @@ function indexed(opts: {
     location: opts.location ?? 'Remote',
     description: '',
     salary: null,
-    postedAt: null,
-    scrapedAt: Date.now() - (opts.ageDays ?? 0) * DAY_MS,
+    postedAt: opts.postedAt ?? null,
+    scrapedAt: opts.scrapedAt ?? Date.now() - (opts.ageDays ?? 0) * DAY_MS,
   }
   const enrichment: Enrichment = {
     contentHash: opts.hash,
@@ -187,5 +189,77 @@ describe('5 known profiles against a seeded set', () => {
 
   it('limit caps the result count', () => {
     expect(runQuery(seed, { stack: ['python'], limit: 2 }).length).toBe(2)
+  })
+})
+
+describe('posting age metadata', () => {
+  const now = new Date('2026-01-10T00:00:00.000Z').valueOf()
+
+  it('prefers explicit postedAt when parseable', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const postedAt = new Date(now - 3 * DAY_MS).toISOString()
+      const hits = runQuery(
+        [indexed({ hash: 'a', postedAt, ageDays: 10 })],
+        { stack: [] },
+      )
+      const hit = hits[0]!
+      expect(hit.postedAgo).toEqual({
+        source: 'postedAt',
+        days: 3,
+        text: '3 days ago',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('falls back to scrapedAt when postedAt cannot be parsed', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const hits = runQuery(
+        [indexed({ hash: 'b', postedAt: 'some time next week', ageDays: 10 })],
+        { stack: [] },
+      )
+      const hit = hits[0]!
+      expect(hit.postedAgo).toEqual({
+        source: 'scrapedAt',
+        days: 10,
+        text: '1 week ago',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('parses human postedAt phrasing like "an hour ago"', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const hits = runQuery(
+        [indexed({ hash: 'd', postedAt: 'an hour ago', scrapedAt: now - 100 * DAY_MS })],
+        { stack: [] },
+      )
+      const hit = hits[0]!
+      expect(hit.postedAgo).toEqual({
+        source: 'postedAt',
+        days: 0,
+        text: '1 hour ago',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('returns null when neither postedAt nor scrapedAt is usable', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const hits = runQuery(
+        [indexed({ hash: 'c', postedAt: 'nonsense', scrapedAt: 0 })],
+        { stack: [] },
+      )
+      expect(hits[0]!.postedAgo).toBeNull()
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 })

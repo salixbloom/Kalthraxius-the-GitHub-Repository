@@ -36,6 +36,12 @@ export interface ScoredHit {
   score: number
   /** Skill ids from the profile stack that the job matched (drives the score). */
   matchedSkills: string[]
+  /** Relative posting age for the result, when a posted date or scrape time is present. */
+  postedAgo: {
+    text: string
+    days: number
+    source: 'postedAt' | 'scrapedAt'
+  } | null
   /**
    * Whether qualification is positively confirmed or merely assumed because a
    * filtered field was null and includeUnknown let it pass. Lets a UI badge or

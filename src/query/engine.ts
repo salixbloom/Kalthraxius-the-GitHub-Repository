@@ -14,6 +14,34 @@ import type { QueryProfile, ScoredHit } from './types.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const FRESHNESS_PENALTY_DAYS = 60
+const HOUR_MS = 60 * 60 * 1000
+const MINUTE_MS = 60 * 1000
+const WEEK_MS = 7 * DAY_MS
+const MONTH_MS = 30 * DAY_MS
+const YEAR_MS = 365 * DAY_MS
+const POSTED_AT_PREFIX_RE = /^posted\s*(?:on|at)?\s*:?\s*/i
+const RELATIVE_POSTED_AGE_RE =
+  /(\d+|a|an)\s*(second|seconds|minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks|month|months|year|years)\s+ago/
+const POSTED_AGE_UNIT_MS: Record<string, number> = {
+  second: 1000,
+  seconds: 1000,
+  minute: MINUTE_MS,
+  minutes: MINUTE_MS,
+  min: MINUTE_MS,
+  mins: MINUTE_MS,
+  hour: HOUR_MS,
+  hours: HOUR_MS,
+  hr: HOUR_MS,
+  hrs: HOUR_MS,
+  day: DAY_MS,
+  days: DAY_MS,
+  week: WEEK_MS,
+  weeks: WEEK_MS,
+  month: MONTH_MS,
+  months: MONTH_MS,
+  year: YEAR_MS,
+  years: YEAR_MS,
+}
 
 export function runQuery(candidates: IndexedJob[], profile: QueryProfile): ScoredHit[] {
   const includeUnknown = profile.includeUnknown ?? true
@@ -27,6 +55,7 @@ export function runQuery(candidates: IndexedJob[], profile: QueryProfile): Score
 
     const { matchedSkills, overlapScore } = scoreStack(candidate, profile.stack)
     const freshness = freshnessScore(candidate, now)
+    const postedAgo = estimatePostedAge(candidate, now)
     // Stack overlap is the primary signal; freshness breaks ties and decays old
     // postings. Weighted so a strong skill match always outranks pure recency.
     const score = overlapScore * 10 + freshness
@@ -36,6 +65,7 @@ export function runQuery(candidates: IndexedJob[], profile: QueryProfile): Score
       job: candidate,
       score,
       matchedSkills,
+      postedAgo,
       qualification: verdict.assumed ? 'assumed' : 'confirmed',
     })
   }
@@ -120,4 +150,93 @@ function freshnessScore(c: IndexedJob, now: number): number {
   if (ageDays <= 0) return 1
   if (ageDays >= FRESHNESS_PENALTY_DAYS) return 0
   return 1 - ageDays / FRESHNESS_PENALTY_DAYS
+}
+
+/** Estimate when a posting was published, prioritizing explicit postedAt data. */
+function estimatePostedAge(candidate: IndexedJob, now: number): ScoredHit['postedAgo'] {
+  const postedAt = candidate.job.postedAt?.trim()
+  let source: 'postedAt' | 'scrapedAt' = 'scrapedAt'
+  let postedAtMs: number | null = null
+
+  if (postedAt) {
+    const postedTimestamp = parsePostedDate(postedAt, now)
+    if (postedTimestamp !== null) {
+      postedAtMs = postedTimestamp
+      source = 'postedAt'
+    }
+  }
+
+  if (postedAtMs === null) {
+    if (candidate.job.scrapedAt > 0) postedAtMs = candidate.job.scrapedAt
+    else return null
+  }
+
+  const ageMs = Math.max(0, now - postedAtMs)
+  return {
+    text: formatElapsedAge(ageMs),
+    days: Math.floor(ageMs / DAY_MS),
+    source,
+  }
+}
+
+/**
+ * Parse a postedAt string into an epoch timestamp (ms since epoch).
+ * Supports ISO-ish dates and common "X unit ago" patterns.
+ */
+function parsePostedDate(raw: string, now: number): number | null {
+  const compact = raw
+    .trim()
+    .toLowerCase()
+    .replace(POSTED_AT_PREFIX_RE, '')
+    .replace(/\.\s*$/, '')
+    .trim()
+
+  const parsedRelative = parseRelativePostedDate(compact, now)
+  if (parsedRelative !== null) return parsedRelative
+
+  const parsedDate = Date.parse(compact)
+  if (!Number.isNaN(parsedDate)) return parsedDate
+  return null
+}
+
+/** Accept common formats like "2 days ago", "3 weeks ago", etc. */
+function parseRelativePostedDate(raw: string, now: number): number | null {
+  const match = raw.match(RELATIVE_POSTED_AGE_RE)
+  if (!match) return null
+
+  const quantity = match[1]
+  const value = quantity === 'a' || quantity === 'an' ? 1 : Number(quantity)
+  const unit = match[2]
+  const step = POSTED_AGE_UNIT_MS[unit]
+  if (!step) return null
+
+  return now - value * step
+}
+
+/** Turn a duration into a friendly phrase like "3 days ago". */
+function formatElapsedAge(ageMs: number): string {
+  if (ageMs < MINUTE_MS) return 'just now'
+
+  const mins = Math.floor(ageMs / MINUTE_MS)
+  if (mins < 60) return `${mins} ${pluralize(mins, 'minute')} ago`
+
+  const hours = Math.floor(ageMs / HOUR_MS)
+  if (hours < 24) return `${hours} ${pluralize(hours, 'hour')} ago`
+
+  const days = Math.floor(ageMs / DAY_MS)
+  if (days < 7) return `${days} ${pluralize(days, 'day')} ago`
+
+  const weeks = Math.floor(days / 7)
+  if (days < 30) return `${weeks} ${pluralize(weeks, 'week')} ago`
+
+  const months = Math.floor(days / 30)
+  if (days < 365) return `${months} ${pluralize(months, 'month')} ago`
+
+  const years = Math.floor(days / 365)
+  return `${years} ${pluralize(years, 'year')} ago`
+}
+
+function pluralize(value: number, unit: string): string {
+  if (value === 1) return unit
+  return `${unit}s`
 }
