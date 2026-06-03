@@ -7,6 +7,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc",
+    "start:aggregator": "node dist/bin/aggregator.js",
+    "start:scraper": "node dist/bin/scraper.js",
+    "start:aggregator-scraper": "node dist/bin/aggregator-scraper.js",
     "download-esco-skills": "node --experimental-strip-types scripts/download-esco-skills.ts",
     "validate-descriptor": "node --experimental-strip-types scripts/validate-descriptor.ts"
   },
