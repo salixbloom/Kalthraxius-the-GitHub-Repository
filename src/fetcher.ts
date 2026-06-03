@@ -1,6 +1,23 @@
-import { request } from 'undici'
+import { request, getGlobalDispatcher, interceptors } from 'undici'
 import { chromium } from 'playwright'
+import type { Dispatcher } from 'undici'
 import type { PlatformDescriptor } from './types.js'
+
+// undici v6+ removed the `maxRedirections` request option; redirect following
+// is now an interceptor composed onto a dispatcher. Build one once and reuse it.
+const MAX_REDIRECTS = 5
+let redirectDispatcher: Dispatcher | undefined
+
+/**
+ * A shared undici dispatcher that follows up to MAX_REDIRECTS redirects via the
+ * redirect interceptor. Exported so the stealth fetcher reuses the same config.
+ */
+export function getRedirectDispatcher(): Dispatcher {
+  redirectDispatcher ??= getGlobalDispatcher().compose(
+    interceptors.redirect({ maxRedirections: MAX_REDIRECTS }),
+  )
+  return redirectDispatcher
+}
 
 export interface FetchResult {
   html: string
@@ -16,13 +33,15 @@ const DEFAULT_HEADERS = {
 }
 
 async function fetchHttp(url: string): Promise<FetchResult> {
-  // maxRedirections is a valid runtime option on undici's request() but is
-  // absent from the current overload's type; assert through the known shape.
   const { statusCode, body, headers } = await request(url, {
     headers: DEFAULT_HEADERS,
-    maxRedirections: 5,
-  } as Parameters<typeof request>[1])
+    dispatcher: getRedirectDispatcher(),
+  })
   const html = await body.text()
+  // The redirect interceptor follows up to MAX_REDIRECTS hops, so a 2xx
+  // response carries no `location`. If a redirect was NOT followed (e.g. the
+  // cap was hit) the final `location` header still points at the next hop;
+  // otherwise the requested URL is the effective final URL.
   const finalUrl = (headers['location'] as string | undefined) ?? url
   return { html, finalUrl, statusCode }
 }

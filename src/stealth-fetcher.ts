@@ -1,6 +1,7 @@
 import { chromium as chromiumExtra } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { request } from 'undici'
+import { getRedirectDispatcher } from './fetcher.js'
 import type { FetchResult } from './fetcher.js'
 import type { PlatformDescriptor } from './types.js'
 
@@ -145,8 +146,8 @@ export async function fetchHardened(
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.5',
     },
-    maxRedirections: 5,
-  } as Parameters<typeof request>[1])
+    dispatcher: getRedirectDispatcher(),
+  })
   const html = await body.text()
   const finalUrl = (headers['location'] as string | undefined) ?? url
   return { html, finalUrl, statusCode }
