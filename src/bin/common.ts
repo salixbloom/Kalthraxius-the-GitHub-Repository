@@ -12,6 +12,7 @@ import type { Ed25519Identity } from '../identity.js'
  *
  * Environment:
  *   KAL_LISTEN          libp2p listen multiaddr (default /ip4/0.0.0.0/tcp/0)
+ *   KAL_WSLISTEN        libp2p listen WebSocket multiadder (default /ip4/0.0.0.0/tcp/0/ws)
  *   KAL_ANNOUNCE        comma-separated multiaddrs to advertise to peers.
  *                       Required behind NAT/Docker: set to the public DNS/IP
  *                       addr so other nodes can dial back (e.g.
@@ -55,7 +56,7 @@ function splitMultiaddrs(raw: string | undefined): string[] {
 export function baseConfig(): BaseConfig {
   return {
     listen: env('KAL_LISTEN', '/ip4/0.0.0.0/tcp/0')!,
-    wslisten: env('KAL_WSLISTEN', '/ip4/0.0.0.0/tscp/4001/ws')!,
+    wslisten: env('KAL_WSLISTEN', '/ip4/0.0.0.0/tcp/0/ws')!,
     announce: splitMultiaddrs(env('KAL_ANNOUNCE', '')),
     bootstrap: splitMultiaddrs(env('KAL_BOOTSTRAP', '')),
     identityFile: env('KAL_IDENTITY_FILE', 'node.key')!,
