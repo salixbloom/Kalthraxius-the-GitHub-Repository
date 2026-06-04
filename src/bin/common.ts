@@ -12,6 +12,10 @@ import type { Ed25519Identity } from '../identity.js'
  *
  * Environment:
  *   KAL_LISTEN          libp2p listen multiaddr (default /ip4/0.0.0.0/tcp/0)
+ *   KAL_ANNOUNCE        comma-separated multiaddrs to advertise to peers.
+ *                       Required behind NAT/Docker: set to the public DNS/IP
+ *                       addr so other nodes can dial back (e.g.
+ *                       /dns4/jobs.example.com/tcp/4001/p2p/<peerId>)
  *   KAL_BOOTSTRAP       comma-separated bootstrap multiaddrs (peers to dial)
  *   KAL_IDENTITY_FILE   path to persist the Ed25519 key (default ./node.key)
  *   KAL_ALLOW_PRIVATE   "1"/"true" to keep loopback addrs in the DHT routing
@@ -20,6 +24,7 @@ import type { Ed25519Identity } from '../identity.js'
 
 export interface BaseConfig {
   listen: string
+  announce: string[]
   bootstrap: string[]
   identityFile: string
   allowPrivateAddresses: boolean
@@ -42,13 +47,15 @@ export function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+function splitMultiaddrs(raw: string | undefined): string[] {
+  return (raw ?? '').split(',').map(s => s.trim()).filter(Boolean)
+}
+
 export function baseConfig(): BaseConfig {
   return {
     listen: env('KAL_LISTEN', '/ip4/0.0.0.0/tcp/0')!,
-    bootstrap: (env('KAL_BOOTSTRAP', '') ?? '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean),
+    announce: splitMultiaddrs(env('KAL_ANNOUNCE', '')),
+    bootstrap: splitMultiaddrs(env('KAL_BOOTSTRAP', '')),
     identityFile: env('KAL_IDENTITY_FILE', 'node.key')!,
     allowPrivateAddresses: envBool('KAL_ALLOW_PRIVATE'),
   }
@@ -71,6 +78,7 @@ export async function startNode(cfg: BaseConfig): Promise<KalthraxiusNode> {
   const node = await createNode({
     privateKey,
     listenAddresses: [cfg.listen],
+    announceAddresses: cfg.announce.length ? cfg.announce : undefined,
     bootstrapAddresses: cfg.bootstrap.length ? cfg.bootstrap : undefined,
     allowPrivateAddresses: cfg.allowPrivateAddresses,
   })

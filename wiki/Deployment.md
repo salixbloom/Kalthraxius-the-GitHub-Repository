@@ -72,6 +72,7 @@ All config is environment-driven. Defaults in parentheses.
 | Var | Default | Notes |
 |---|---|---|
 | `KAL_LISTEN` | `/ip4/0.0.0.0/tcp/0` | libp2p listen multiaddr. **Set a fixed port** in production (e.g. `/ip4/0.0.0.0/tcp/4001`) so it's mappable/exposable. |
+| `KAL_ANNOUNCE` | – | Comma-separated multiaddrs to advertise to peers. **Required behind NAT or Docker bridge networking.** Set to your public DNS/IP address so other nodes can dial back — e.g. `/dns4/jobs.example.com/tcp/4001/p2p/<peerId>`. Without this, the node advertises only its container/internal address and remote peers time out. |
 | `KAL_BOOTSTRAP` | – | Comma-separated multiaddrs of known peers to dial on start. How a new node joins the network. |
 | `KAL_IDENTITY_FILE` | `node.key` | Path to persist the Ed25519 key. **Put this on a persistent volume** so the node keeps its peer id across restarts. |
 | `KAL_ALLOW_PRIVATE` | off | `1`/`true` keeps loopback/private addresses in the DHT routing table. Needed for single-host/local clusters; **leave off in production**. |
@@ -90,7 +91,6 @@ All config is environment-driven. Defaults in parentheses.
 | Var | Default | Notes |
 |---|---|---|
 | `KAL_DESCRIPTOR` | – (**required**) | Path to a platform descriptor JSON. |
-| `KAL_SCRAPE_URL` | descriptor `baseUrl` | URL to scrape. |
 | `KAL_SCRAPE_MS` | `300000` | Interval between scrape passes (ms). |
 | `KAL_CLAIM_TTL_MS` | `1800000` | DHT scrape-claim TTL (ms). |
 | `KAL_STEALTH` | off | `1` uses the hardened stealth fetcher (needs Chromium). |
@@ -115,16 +115,15 @@ libp2p peers must be able to **dial each other**. Two things matter:
 - **Listen port.** Set `KAL_LISTEN=/ip4/0.0.0.0/tcp/4001` and expose/map that TCP
   port. The transport is TCP + Noise (encrypted, Ed25519-authenticated).
 - **Announced address.** A node advertises the addresses it listens on. Behind
-  NAT or container/pod networking, the address it *listens* on may not be the
-  address peers can *reach*.
-  > **Known limitation:** `createNode` currently sets only `listen` — there is
-  > **no announce-address override** wired in, and **circuit-relay is a
-  > dependency but not enabled** on the node. So today, reliable peer
-  > connectivity needs **routable listen addresses** (host networking, a mapped
-  > public port, or a flat overlay network where the listen address is the
-  > reachable one). Strict NAT traversal / relaying is not yet wired up. Plan
-  > deployments accordingly (host networking on k8s, `network_mode: host` or a
-  > shared bridge in Compose, published ports on a public host for Docker).
+  NAT or container/pod networking, the address it *listens* on (`172.x.x.x`,
+  `127.0.0.1`) is not the address peers can *reach*. Set `KAL_ANNOUNCE` to
+  your public multiaddr so peers know where to dial:
+  ```
+  KAL_ANNOUNCE=/dns4/jobs.example.com/tcp/4001/p2p/<peerId>
+  ```
+  Without this, remote peers will time out even when the port is forwarded.
+  Circuit-relay is not yet wired up — `KAL_ANNOUNCE` is the supported
+  NAT-traversal mechanism today.
 
 A practical bootstrap topology: run one well-known node with a fixed,
 routable address and port, and point every other node's `KAL_BOOTSTRAP` at it.
@@ -273,12 +272,10 @@ docker run -d --name kal-scraper \
 > deployments only need it on dedicated scraper nodes — consider a separate
 > `Dockerfile.browser` for those.
 
-> **P2P reachability:** publishing `-p 4001:4001` exposes the port, but the node
-> still *announces* its container-internal listen address. On a single public
-> host this generally works if peers dial it via the host's address (your
-> `KAL_BOOTSTRAP`). For multi-host, prefer host networking
-> (`--network host`) or an overlay where the listen address is routable (see
-> [Networking](#networking--ports-read-this-for-p2p)).
+> **P2P reachability:** publish `-p 4001:4001` and set `KAL_ANNOUNCE` to the
+> host's public multiaddr (e.g. `-e KAL_ANNOUNCE=/dns4/jobs.example.com/tcp/4001/p2p/<peerId>`).
+> Without `KAL_ANNOUNCE` the node tells peers its container-internal address and
+> they time out. See [Networking](#networking--ports-read-this-for-p2p).
 
 ---
 
@@ -418,15 +415,12 @@ Scrapers are a similar StatefulSet with `command: ["node",
 "dist/bin/scraper.js"]`, a `KAL_DESCRIPTOR` mounted from a ConfigMap, and
 `KAL_BOOTSTRAP` pointing at the aggregator.
 
-**Reachability on k8s — the key caveat.** Because the node announces its listen
-address and there's no announce-override/relay wired in yet
-([Networking](#networking--ports-read-this-for-p2p)), the cleanest path today is
-**`hostNetwork: true`** so the pod's listen address is a real, routable node IP.
-Without it, a pod announces a cluster-internal pod IP that off-cluster peers
-can't dial, and even in-cluster dialing depends on your CNI. If you must avoid
-host networking, keep the whole network on one flat, routable overlay and use
-in-cluster peers only. Revisit this once announce-address config / circuit-relay
-is implemented.
+**Reachability on k8s.** Set `KAL_ANNOUNCE` to the pod's externally-reachable
+multiaddr — either the node IP (with `hostNetwork: true`) or a `LoadBalancer`
+service address. Without it the pod announces its cluster-internal pod IP which
+off-cluster peers can't dial. `hostNetwork: true` is the simplest path if you
+only need cluster-internal peers; for external peers set `KAL_ANNOUNCE` to a
+`LoadBalancer` or `NodePort` address. Circuit-relay is not yet wired up.
 
 **Descriptor via ConfigMap** (for scrapers):
 

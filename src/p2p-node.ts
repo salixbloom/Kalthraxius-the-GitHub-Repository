@@ -17,6 +17,8 @@ import type { GossipsubEvents } from '@chainsafe/libp2p-gossipsub'
 export interface NodeOptions {
   privateKey: Ed25519Identity
   listenAddresses: string[]
+  /** Addresses to advertise to peers (overrides the auto-detected listen addrs). */
+  announceAddresses?: string[]
   bootstrapAddresses?: string[]
   /**
    * When true, keep private/loopback addresses in the DHT routing table.
@@ -57,6 +59,7 @@ export async function createNode(options: NodeOptions): Promise<KalthraxiusNode>
     privateKey: options.privateKey,
     addresses: {
       listen: options.listenAddresses,
+      ...(options.announceAddresses?.length ? { announce: options.announceAddresses } : {}),
     },
     transports: [tcp()],
     connectionEncrypters: [noise()],
