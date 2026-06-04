@@ -1,0 +1,25 @@
+{
+  "id": "fake-jobs",
+  "name": "Real Python Fake Jobs (test sandbox)",
+  "baseUrl": "https://realpython.github.io/fake-jobs/",
+  "fetcherMode": "http",
+  "rateLimit": {
+    "requestsPerMinute": 60
+  },
+  "pagination": {
+    "type": "page",
+    "pageParam": "page",
+    "pageSize": 100,
+    "maxPages": 1
+  },
+  "selectors": {
+    "jobList": ".card",
+    "jobLink": ".card-footer a:last-child",
+    "title": ".title",
+    "company": ".company",
+    "location": ".location",
+    "description": null,
+    "salary": null,
+    "postedAt": "time"
+  }
+}
