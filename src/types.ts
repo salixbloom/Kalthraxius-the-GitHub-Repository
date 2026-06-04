@@ -9,6 +9,19 @@ export interface PlatformDescriptor {
     requestsPerMinute: number
   }
   pagination: {
+    /**
+     * When false (or omitted), only the base URL is scraped — pagination is off.
+     * When true, the scraper crawls pages per `type` up to `maxPages`, stopping
+     * early on an empty page (or, for cursor, when no next link is found).
+     */
+    enabled?: boolean
+    /**
+     * - `page`   — pageParam carries a 1-based page number (?page=1, ?page=2…).
+     * - `offset` — pageParam carries a row offset stepped by pageSize
+     *              (?page=0, ?page=25, ?page=50…).
+     * - `cursor` — the next page's URL is read from the current page's HTML via
+     *              `selectors.nextLink`; not computed. pageParam/pageSize unused.
+     */
     type: 'offset' | 'cursor' | 'page'
     pageParam: string
     pageSize: number
@@ -23,6 +36,8 @@ export interface PlatformDescriptor {
     description: string
     salary?: string
     postedAt?: string
+    /** Cursor pagination only: selector for the "next page" link (its href). */
+    nextLink?: string
   }
 }
 

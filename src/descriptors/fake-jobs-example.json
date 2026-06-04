@@ -7,6 +7,7 @@
     "requestsPerMinute": 60
   },
   "pagination": {
+    "enabled": false,
     "type": "page",
     "pageParam": "page",
     "pageSize": 100,

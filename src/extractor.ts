@@ -116,6 +116,39 @@ export async function extractJobs(
   }
 }
 
+/**
+ * Cursor pagination: extract the "next page" URL from a page's HTML via the
+ * descriptor's `selectors.nextLink`, resolved to an absolute URL against
+ * `currentUrl`. Returns null when there's no next link (the end of the board) or
+ * no `nextLink` selector is configured. Pass a shared `browser` to amortise
+ * launch across pages.
+ */
+export async function extractNextLink(
+  html: string,
+  descriptor: PlatformDescriptor,
+  currentUrl: string,
+  opts: { browser?: Browser } = {},
+): Promise<string | null> {
+  const selector = descriptor.selectors.nextLink
+  if (!selector) return null
+
+  const ownsBrowser = !opts.browser
+  const browser = opts.browser ?? (await chromium.launch({ headless: true }))
+  try {
+    const page = await browser.newPage()
+    try {
+      await page.setContent(html, { waitUntil: 'domcontentloaded' })
+      const el = await page.$(selector)
+      const href = el ? await el.getAttribute('href') : null
+      return absoluteUrl(href, currentUrl)
+    } finally {
+      await page.close()
+    }
+  } finally {
+    if (ownsBrowser) await browser.close()
+  }
+}
+
 /** Stamp the canonical hashes onto a raw job (content + location). */
 export function stampHashes(job: Omit<RawJob, 'contentHash'>): RawJob {
   return { ...job, contentHash: contentHash({ ...job, contentHash: '' }) }

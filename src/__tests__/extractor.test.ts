@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { chromium } from 'playwright'
-import { extractJobs } from '../extractor.js'
+import { extractJobs, extractNextLink } from '../extractor.js'
 import { validateDescriptor } from '../descriptor-validator.js'
 import { verifyIntegrity } from '../job-hash.js'
 import { browserAvailable } from './helpers/browser.js'
@@ -136,5 +136,34 @@ describe('validateDescriptor (Phase 8 gate)', () => {
     const report = await validateDescriptor(GOOD_HTML, desc, { browser: browser! })
     expect(report.ok).toBe(true)
     expect(report.fields.find(f => f.field === 'salary')?.status).toBe('warn')
+  })
+})
+
+describe('extractNextLink (cursor pagination)', () => {
+  const cursorDesc: PlatformDescriptor = {
+    ...DESCRIPTOR,
+    pagination: { ...DESCRIPTOR.pagination, type: 'cursor' },
+    selectors: { ...DESCRIPTOR.selectors, nextLink: 'a.next' },
+  }
+  const PAGE = `<html><body>
+    <a class="prev" href="/acme/page/1">Prev</a>
+    <a class="next" href="/acme/page/3">Next</a>
+  </body></html>`
+
+  bIt('extracts the next-page link, resolved to an absolute URL', async () => {
+    const next = await extractNextLink(PAGE, cursorDesc, 'https://boards.greenhouse.io/acme/page/2', { browser: browser! })
+    expect(next).toBe('https://boards.greenhouse.io/acme/page/3')
+  })
+
+  bIt('returns null when there is no next link (end of board)', async () => {
+    const last = `<html><body><a class="prev" href="/acme/page/1">Prev</a></body></html>`
+    const next = await extractNextLink(last, cursorDesc, 'https://boards.greenhouse.io/acme/page/2', { browser: browser! })
+    expect(next).toBeNull()
+  })
+
+  bIt('returns null when no nextLink selector is configured', async () => {
+    const noSelector: PlatformDescriptor = { ...DESCRIPTOR }
+    const next = await extractNextLink(PAGE, noSelector, 'https://boards.greenhouse.io/acme/', { browser: browser! })
+    expect(next).toBeNull()
   })
 })
