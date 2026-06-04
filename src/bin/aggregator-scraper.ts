@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { baseConfig, env, envBool, envInt, startNode, runUntilSignal, fail, errMsg } from './common.js'
 import { runScrapePass } from './scrape-pass.js'
+import { RateLimiter } from '../rate-limiter.js'
 import { AggregatorNode } from '../aggregator/node.js'
 import { SqliteAggregatorStore } from '../aggregator/store-sqlite.js'
 import { SqliteSearchIndex } from '../aggregator/search-sqlite.js'
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
   const descriptorPath = env('KAL_DESCRIPTOR')
   if (!descriptorPath) fail('KAL_DESCRIPTOR is required (path to a platform descriptor JSON)')
   const descriptor = JSON.parse(readFileSync(descriptorPath!, 'utf8')) as PlatformDescriptor
-  const url = env('KAL_SCRAPE_URL', descriptor.baseUrl)!
+  const url = descriptor.baseUrl
   const scrapeIntervalMs = envInt('KAL_SCRAPE_MS', 5 * 60_000)
   const claimTtlMs = envInt('KAL_CLAIM_TTL_MS', 30 * 60_000)
   const stealth = envBool('KAL_STEALTH')
@@ -58,15 +59,18 @@ async function main(): Promise<void> {
   console.log(`[aggregator] started — store=${storePath} jobs=${store.count()}`)
 
   // --- scraper half ---
-  console.log(`[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${scrapeIntervalMs}ms`)
+  console.log(
+    `[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${scrapeIntervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
+  )
   await new Promise(r => setTimeout(r, 1_000)) // let meshes form
 
+  const limiter = new RateLimiter()
   let scrapeTimer: NodeJS.Timeout | null = null
   let stopped = false
   const pass = async (): Promise<void> => {
     if (stopped) return
     try {
-      const n = await runScrapePass(node as KalthraxiusNode, descriptor, url, { claimTtlMs, stealth })
+      const n = await runScrapePass(node as KalthraxiusNode, descriptor, url, { claimTtlMs, stealth, limiter })
       console.log(`[scraper] pass complete — published ${n} job(s); indexed total=${store.count()}`)
     } catch (err) {
       console.error(`[scraper] pass failed: ${errMsg(err)}`)

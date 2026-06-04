@@ -3,6 +3,7 @@ import { fetchHardened } from '../stealth-fetcher.js'
 import { extractJobs } from '../extractor.js'
 import { publishJob } from '../gossip.js'
 import { claimTarget, hasActiveClaim } from '../scrape-claim.js'
+import { RateLimiter } from '../rate-limiter.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 import type { PlatformDescriptor } from '../types.js'
 
@@ -11,6 +12,12 @@ export interface ScrapePassOptions {
   claimTtlMs: number
   /** Use the stealth fetcher (anti-bot, jitter) instead of the plain one. */
   stealth: boolean
+  /**
+   * Shared rate limiter enforcing the descriptor's `rateLimit`. Pass the SAME
+   * instance across passes so the platform is paced over time, not just within
+   * one pass. Omit to skip throttling (e.g. tests).
+   */
+  limiter?: RateLimiter
 }
 
 /**
@@ -33,6 +40,9 @@ export async function runScrapePass(
     return 0
   }
   await claimTarget(node.services.dht, descriptor.id, url, node.peerId.toString(), opts.claimTtlMs)
+
+  // Honor the platform's politeness limit before every fetch.
+  await opts.limiter?.acquire(descriptor.id, descriptor.rateLimit.requestsPerMinute)
 
   const { html } = opts.stealth
     ? await fetchHardened(url, descriptor)
