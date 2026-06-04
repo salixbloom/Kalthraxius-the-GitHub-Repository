@@ -24,6 +24,7 @@ import type { Ed25519Identity } from '../identity.js'
 
 export interface BaseConfig {
   listen: string
+  wslisten: string
   announce: string[]
   bootstrap: string[]
   identityFile: string
@@ -54,6 +55,7 @@ function splitMultiaddrs(raw: string | undefined): string[] {
 export function baseConfig(): BaseConfig {
   return {
     listen: env('KAL_LISTEN', '/ip4/0.0.0.0/tcp/0')!,
+    wslisten: env('KAL_WSLISTEN', '/ip4/0.0.0.0/tscp/4001/ws')!,
     announce: splitMultiaddrs(env('KAL_ANNOUNCE', '')),
     bootstrap: splitMultiaddrs(env('KAL_BOOTSTRAP', '')),
     identityFile: env('KAL_IDENTITY_FILE', 'node.key')!,
@@ -77,7 +79,7 @@ export async function startNode(cfg: BaseConfig): Promise<KalthraxiusNode> {
   const privateKey = await loadOrCreateIdentity(cfg.identityFile)
   const node = await createNode({
     privateKey,
-    listenAddresses: [cfg.listen],
+    listenAddresses: [cfg.listen, cfg.wslisten],
     announceAddresses: cfg.announce.length ? cfg.announce : undefined,
     bootstrapAddresses: cfg.bootstrap.length ? cfg.bootstrap : undefined,
     allowPrivateAddresses: cfg.allowPrivateAddresses,
