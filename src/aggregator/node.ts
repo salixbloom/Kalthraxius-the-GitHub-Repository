@@ -1,5 +1,6 @@
 import { subscribeToJobs } from '../gossip.js'
 import { enrichJob } from '../enrichment/enrich.js'
+import { log } from '../logger.js'
 import { loadPlatforms } from '../platforms.js'
 import { announceAggregator } from './announce.js'
 import { BloomFilter } from './bloom.js'
@@ -111,11 +112,13 @@ export class AggregatorNode {
   ingest(job: RawJob): 'inserted' | 'updated' | 'rejected' {
     if (this.verifyContentHash && !verifyIntegrity(job).ok) {
       this.rejectedCount++
+      log.aggregator.warn(`rejected job hash mismatch — platform=${job.platformId} url=${job.url}`)
       return 'rejected'
     }
     const enrichment = enrichJob(job)
     const result = this.store.upsert({ job, enrichment })
     this.search.index({ job, enrichment })
+    log.aggregator.info(`${result} job platform=${job.platformId} title="${job.title}" company="${job.company}"`)
     return result
   }
 

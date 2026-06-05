@@ -1,6 +1,7 @@
 import { request } from 'undici'
 import { getRedirectDispatcher } from './fetcher.js'
 import { contentHash } from './job-hash.js'
+import { log } from './logger.js'
 import type { PlatformDescriptor, RawJob, JsonLdMapping } from './types.js'
 import type { ExtractResult } from './extractor.js'
 
@@ -224,6 +225,8 @@ export async function extractJsonLdJobs(
       ? extractUrlsFromWindowJobBoard(listingHtml)
       : extractUrlsFromItemList(listingHtml)
 
+  log.scrape.info(`[json-ld] listing source=${mapping.listingSource} found ${detailUrls.length} detail URL(s)`)
+
   const jobs: RawJob[] = []
   const fieldCoverage: Record<string, number> = {
     title: 0, company: 0, location: 0, description: 0, salary: 0, postedAt: 0,
@@ -233,15 +236,23 @@ export async function extractJsonLdJobs(
     let detailHtml: string
     try {
       detailHtml = await fetchText(url)
-    } catch {
+      log.scrape.debug(`[json-ld] fetched detail ${url}`)
+    } catch (err) {
+      log.scrape.warn(`[json-ld] failed to fetch detail ${url}: ${err instanceof Error ? err.message : String(err)}`)
       continue
     }
 
     const posting = extractJobPosting(detailHtml)
-    if (!posting) continue
+    if (!posting) {
+      log.scrape.warn(`[json-ld] no JobPosting JSON-LD found at ${url}`)
+      continue
+    }
 
     const job = mapJobPosting(posting, url, descriptor, scrapedAt)
-    if (!job) continue
+    if (!job) {
+      log.scrape.warn(`[json-ld] could not map JobPosting to RawJob at ${url} (missing title?)`)
+      continue
+    }
 
     jobs.push(job)
     if (job.title) fieldCoverage['title'] = (fieldCoverage['title'] ?? 0) + 1
