@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   console.log(
     `[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${scrapeIntervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
   )
-  await new Promise(r => setTimeout(r, 1_000)) // let meshes form
+  await new Promise(r => setTimeout(r, 5_000)) // let gossip meshes form (needs several heartbeat rounds)
 
   const limiter = new RateLimiter()
   let scrapeTimer: NodeJS.Timeout | null = null

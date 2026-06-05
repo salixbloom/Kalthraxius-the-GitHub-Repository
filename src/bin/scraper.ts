@@ -42,8 +42,10 @@ async function main(): Promise<void> {
     `[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${intervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
   )
 
-  // Give the gossip mesh a moment to form before the first publish.
-  await new Promise(r => setTimeout(r, 1_000))
+  // Give the gossip mesh time to form before the first publish. GossipSub mesh
+  // negotiation takes several heartbeat rounds; 1s is not enough over a real
+  // network — 5s is the safe minimum.
+  await new Promise(r => setTimeout(r, 5_000))
 
   // One limiter for the whole node lifetime so passes are paced over time.
   const limiter = new RateLimiter()
