@@ -70,8 +70,8 @@ export async function validateDescriptor(
 
   for (const f of OPTIONAL_FIELDS) {
     // Skip optional fields the descriptor doesn't even define a selector for.
-    if (f === 'salary' && !descriptor.selectors.salary) continue
-    if (f === 'postedAt' && !descriptor.selectors.postedAt) continue
+    if (f === 'salary' && !descriptor.selectors?.salary) continue
+    if (f === 'postedAt' && !descriptor.selectors?.postedAt) continue
     const matched = stats.fieldCoverage[f] ?? 0
     fields.push({
       field: f,

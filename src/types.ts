@@ -1,4 +1,31 @@
-export type FetcherMode = 'http' | 'browser'
+export type FetcherMode = 'http' | 'browser' | 'json-ld-list'
+
+/**
+ * Field mapping for `fetcherMode: "json-ld-list"`. The listing page is expected
+ * to contain either a `window.jobBoard` script blob (Workable pattern) or a
+ * JSON-LD `ItemList` with job URLs. Each detail URL is then fetched and its
+ * `JobPosting` JSON-LD block is parsed.
+ *
+ * Field paths are dot-notation into the JSON-LD `JobPosting` object
+ * (e.g. "hiringOrganization.name", "jobLocation.address.addressLocality").
+ * Set a field to null to leave it empty.
+ */
+export interface JsonLdMapping {
+  /** Where to find job URLs on the listing page: "window-job-board" or "item-list-json-ld". */
+  listingSource: 'window-job-board' | 'item-list-json-ld'
+  /** Dot-path into each JobPosting object for the job title. Default: "title". */
+  title?: string
+  /** Dot-path for company name. Default: "hiringOrganization.name". */
+  company?: string
+  /** Dot-path for location string. Default: "jobLocation.address.addressLocality". */
+  location?: string
+  /** Dot-path for description HTML. Default: "description". */
+  description?: string
+  /** Dot-path for salary text, or null to skip. Default: "baseSalary.value.value". */
+  salary?: string | null
+  /** Dot-path for posted date, or null to skip. Default: "datePosted". */
+  postedAt?: string | null
+}
 
 export interface PlatformDescriptor {
   id: string
@@ -8,6 +35,12 @@ export interface PlatformDescriptor {
   rateLimit: {
     requestsPerMinute: number
   }
+  /**
+   * Required when fetcherMode is "json-ld-list". Describes how to extract jobs
+   * from a JSON-LD listing + detail-page pattern (e.g. Workable aggregator).
+   * Ignored for "http" and "browser" modes.
+   */
+  jsonLdMapping?: JsonLdMapping
   pagination: {
     /**
      * When false (or omitted), only the base URL is scraped — pagination is off.
@@ -27,18 +60,23 @@ export interface PlatformDescriptor {
     pageSize: number
     maxPages: number
   }
-  selectors: {
+  /**
+   * CSS selectors for HTML extraction. Required for "http" and "browser" modes.
+   * Omit (or set to null) for "json-ld-list" mode, which uses `jsonLdMapping`
+   * instead.
+   */
+  selectors?: {
     jobList: string
     jobLink: string
     title: string
     company: string
     location: string
     description: string
-    salary?: string
-    postedAt?: string
+    salary?: string | null
+    postedAt?: string | null
     /** Cursor pagination only: selector for the "next page" link (its href). */
     nextLink?: string
-  }
+  } | null
 }
 
 export interface RawJob {

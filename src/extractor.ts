@@ -59,7 +59,7 @@ export async function extractJobs(
     try {
       await page.setContent(html, { waitUntil: 'domcontentloaded' })
 
-      const sel = descriptor.selectors
+      const sel = descriptor.selectors!
       const rows = await page.$$(sel.jobList)
       const fieldCoverage: Record<string, number> = {}
       for (const f of FIELD_SELECTORS) fieldCoverage[f] = 0
@@ -82,8 +82,8 @@ export async function extractJobs(
         const company = await get(sel.company)
         const location = await get(sel.location)
         const description = await get(sel.description)
-        const salary = await get(sel.salary)
-        const postedAt = await get(sel.postedAt)
+        const salary = await get(sel.salary ?? undefined)
+        const postedAt = await get(sel.postedAt ?? undefined)
 
         for (const [f, v] of Object.entries({ title, company, location, description, salary, postedAt })) {
           if (v) fieldCoverage[f] = (fieldCoverage[f] ?? 0) + 1
@@ -129,7 +129,7 @@ export async function extractNextLink(
   currentUrl: string,
   opts: { browser?: Browser } = {},
 ): Promise<string | null> {
-  const selector = descriptor.selectors.nextLink
+  const selector = descriptor.selectors?.nextLink
   if (!selector) return null
 
   const ownsBrowser = !opts.browser

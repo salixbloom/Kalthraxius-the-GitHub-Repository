@@ -110,7 +110,7 @@ describe('validateDescriptor (Phase 8 gate)', () => {
   bIt('reports FAILURE on a broken required selector', async () => {
     const broken: PlatformDescriptor = {
       ...DESCRIPTOR,
-      selectors: { ...DESCRIPTOR.selectors, title: '.does-not-exist' },
+      selectors: { ...DESCRIPTOR.selectors!, title: '.does-not-exist' },
     }
     const report = await validateDescriptor(GOOD_HTML, broken, { browser: browser! })
     expect(report.ok).toBe(false)
@@ -120,7 +120,7 @@ describe('validateDescriptor (Phase 8 gate)', () => {
   bIt('reports BROKEN jobList when nothing matches', async () => {
     const broken: PlatformDescriptor = {
       ...DESCRIPTOR,
-      selectors: { ...DESCRIPTOR.selectors, jobList: '.no-such-list' },
+      selectors: { ...DESCRIPTOR.selectors!, jobList: '.no-such-list' },
     }
     const report = await validateDescriptor(GOOD_HTML, broken, { browser: browser! })
     expect(report.ok).toBe(false)
@@ -131,7 +131,7 @@ describe('validateDescriptor (Phase 8 gate)', () => {
     // salary present in markup but selector points nowhere → optional warn.
     const desc: PlatformDescriptor = {
       ...DESCRIPTOR,
-      selectors: { ...DESCRIPTOR.selectors, salary: '.no-salary-here' },
+      selectors: { ...DESCRIPTOR.selectors!, salary: '.no-salary-here' },
     }
     const report = await validateDescriptor(GOOD_HTML, desc, { browser: browser! })
     expect(report.ok).toBe(true)
@@ -143,7 +143,7 @@ describe('extractNextLink (cursor pagination)', () => {
   const cursorDesc: PlatformDescriptor = {
     ...DESCRIPTOR,
     pagination: { ...DESCRIPTOR.pagination, type: 'cursor' },
-    selectors: { ...DESCRIPTOR.selectors, nextLink: 'a.next' },
+    selectors: { ...DESCRIPTOR.selectors!, nextLink: 'a.next' },
   }
   const PAGE = `<html><body>
     <a class="prev" href="/acme/page/1">Prev</a>

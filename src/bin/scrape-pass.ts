@@ -1,6 +1,7 @@
 import { fetch } from '../fetcher.js'
 import { fetchHardened } from '../stealth-fetcher.js'
 import { extractJobs, extractNextLink } from '../extractor.js'
+import { extractJsonLdJobs } from '../json-ld-fetcher.js'
 import { publishJob } from '../gossip.js'
 import { claimTarget, hasActiveClaim } from '../scrape-claim.js'
 import { RateLimiter } from '../rate-limiter.js'
@@ -126,7 +127,9 @@ async function scrapeOnePage(
     ? await fetchHardened(url, descriptor)
     : await fetch(url, descriptor)
 
-  const { jobs, stats } = await extractJobs(html, descriptor)
+  const { jobs, stats } = descriptor.fetcherMode === 'json-ld-list'
+    ? await extractJsonLdJobs(html, descriptor)
+    : await extractJobs(html, descriptor)
   console.log(`[scrape] ${url} → matched ${stats.matched} row(s), extracted ${jobs.length} job(s)`)
 
   let published = 0
