@@ -1,4 +1,4 @@
-export type FetcherMode = 'http' | 'browser' | 'json-ld-list'
+export type FetcherMode = 'http' | 'browser' | 'json-ld-list' | 'workable-api'
 
 /**
  * Field mapping for `fetcherMode: "json-ld-list"`. The listing page is expected

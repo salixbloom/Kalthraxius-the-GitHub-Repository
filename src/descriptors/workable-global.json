@@ -2,24 +2,15 @@
   "id": "workable",
   "name": "Workable Global (jobs.workable.com)",
   "baseUrl": "https://jobs.workable.com/search/Alpha%20Centauri",
-  "fetcherMode": "json-ld-list",
+  "fetcherMode": "workable-api",
   "rateLimit": {
     "requestsPerMinute": 20
   },
-  "jsonLdMapping": {
-    "listingSource": "window-job-board",
-    "title": "title",
-    "company": "hiringOrganization.name",
-    "location": "jobLocation.address.addressLocality",
-    "description": "description",
-    "salary": "baseSalary.value.value",
-    "postedAt": "datePosted"
-  },
   "pagination": {
-    "enabled": false,
-    "type": "page",
-    "pageParam": "page",
+    "enabled": true,
+    "type": "cursor",
+    "pageParam": "pageToken",
     "pageSize": 20,
-    "maxPages": 1
+    "maxPages": 5
   }
 }
