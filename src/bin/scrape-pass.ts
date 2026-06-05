@@ -6,6 +6,7 @@ import { publishJob } from '../gossip.js'
 import { claimTarget, hasActiveClaim } from '../scrape-claim.js'
 import { RateLimiter } from '../rate-limiter.js'
 import { pageUrl, maxPagesFor } from '../pagination.js'
+import { log } from '../logger.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 import type { PlatformDescriptor, RawJob } from '../types.js'
 
@@ -115,7 +116,7 @@ async function scrapeOnePage(
 ): Promise<PageResult> {
   // Per-page coordination: don't crawl a page another peer is already on.
   if (await hasActiveClaim(node.services.dht, descriptor.id, url)) {
-    console.log(`[scrape] ${url} is already claimed by a peer — skipping`)
+    log.scrape.debug(`${url} — already claimed by a peer, skipping`)
     return { skipped: true, jobCount: 0, published: 0, html: null }
   }
   await claimTarget(node.services.dht, descriptor.id, url, node.peerId.toString(), opts.claimTtlMs)
@@ -130,7 +131,7 @@ async function scrapeOnePage(
   const { jobs, stats } = descriptor.fetcherMode === 'json-ld-list'
     ? await extractJsonLdJobs(html, descriptor)
     : await extractJobs(html, descriptor)
-  console.log(`[scrape] ${url} → matched ${stats.matched} row(s), extracted ${jobs.length} job(s)`)
+  log.scrape.info(`${url} → matched ${stats.matched} row(s), extracted ${jobs.length} job(s)`)
 
   let published = 0
   for (const job of jobs as RawJob[]) {

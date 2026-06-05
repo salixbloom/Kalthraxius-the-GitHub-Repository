@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs'
 import { baseConfig, env, envBool, envInt, startNode, runUntilSignal, fail, errMsg } from './common.js'
 import { runScrapePass } from './scrape-pass.js'
 import { RateLimiter } from '../rate-limiter.js'
+import { log, flushLogs } from '../logger.js'
 import type { PlatformDescriptor } from '../types.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 
@@ -38,8 +39,8 @@ async function main(): Promise<void> {
   const once = envBool('KAL_ONCE')
 
   const node = await startNode(cfg)
-  console.log(
-    `[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${intervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
+  log.scraper.info(
+    `platform=${descriptor.id} url=${url} stealth=${stealth} interval=${intervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
   )
 
   // Give the gossip mesh time to form before the first publish. GossipSub mesh
@@ -56,9 +57,9 @@ async function main(): Promise<void> {
     if (stopped) return
     try {
       const n = await runScrapePass(node as KalthraxiusNode, descriptor, url, { claimTtlMs, stealth, limiter })
-      console.log(`[scraper] pass complete — published ${n} job(s)`)
+      log.scraper.info(`pass complete — published ${n} job(s)`)
     } catch (err) {
-      console.error(`[scraper] pass failed: ${errMsg(err)}`)
+      log.scraper.error(`pass failed: ${errMsg(err)}`)
     }
   }
 
@@ -75,10 +76,11 @@ async function main(): Promise<void> {
     stopped = true
     if (timer) clearInterval(timer)
     await node.stop()
+    await flushLogs()
   })
 }
 
 main().catch(err => {
-  console.error(err)
+  log.error.error(String(err))
   process.exit(1)
 })

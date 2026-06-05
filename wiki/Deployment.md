@@ -96,6 +96,14 @@ All config is environment-driven. Defaults in parentheses.
 | `KAL_STEALTH` | off | `1` uses the hardened stealth fetcher (needs Chromium). |
 | `KAL_ONCE` | off | `1` runs a single pass and exits (cron/Job-friendly). |
 
+**Descriptor `fetcherMode` values:**
+
+| Mode | How it works |
+|---|---|
+| `http` | Plain HTTP fetch → CSS selectors. Standard for server-rendered job boards (Greenhouse, Lever, Ashby, etc.). |
+| `browser` | Playwright headless browser → CSS selectors. For anti-bot sites or JS-rendered pages. Needs Chromium. |
+| `json-ld-list` | HTTP fetch listing page → extract job URLs from `window.jobBoard` or JSON-LD `ItemList` → fetch each detail page → parse `JobPosting` JSON-LD. No browser needed. Used for SPAs like `workable-global.json` that embed data in script tags. Configure field paths via `jsonLdMapping` in the descriptor. |
+
 ### Persistent state
 
 A node has up to three pieces of state that must survive restarts:

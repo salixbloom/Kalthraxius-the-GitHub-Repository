@@ -18,6 +18,7 @@ import { RateLimiter } from '../rate-limiter.js'
 import { AggregatorNode } from '../aggregator/node.js'
 import { SqliteAggregatorStore } from '../aggregator/store-sqlite.js'
 import { SqliteSearchIndex } from '../aggregator/search-sqlite.js'
+import { log, flushLogs } from '../logger.js'
 import type { PlatformDescriptor } from '../types.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 
@@ -56,11 +57,11 @@ async function main(): Promise<void> {
     announceIntervalMs,
   })
   await aggregator.start()
-  console.log(`[aggregator] started — store=${storePath} jobs=${store.count()}`)
+  log.aggregator.info(`started — store=${storePath} jobs=${store.count()}`)
 
   // --- scraper half ---
-  console.log(
-    `[scraper] platform=${descriptor.id} url=${url} stealth=${stealth} interval=${scrapeIntervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
+  log.scraper.info(
+    `platform=${descriptor.id} url=${url} stealth=${stealth} interval=${scrapeIntervalMs}ms rateLimit=${descriptor.rateLimit.requestsPerMinute}/min`,
   )
   await new Promise(r => setTimeout(r, 5_000)) // let gossip meshes form (needs several heartbeat rounds)
 
@@ -71,9 +72,9 @@ async function main(): Promise<void> {
     if (stopped) return
     try {
       const n = await runScrapePass(node as KalthraxiusNode, descriptor, url, { claimTtlMs, stealth, limiter })
-      console.log(`[scraper] pass complete — published ${n} job(s); indexed total=${store.count()}`)
+      log.scraper.info(`pass complete — published ${n} job(s); indexed total=${store.count()}`)
     } catch (err) {
-      console.error(`[scraper] pass failed: ${errMsg(err)}`)
+      log.scraper.error(`pass failed: ${errMsg(err)}`)
     }
   }
   await pass()
@@ -87,10 +88,11 @@ async function main(): Promise<void> {
     store.close()
     search.close()
     await node.stop()
+    await flushLogs()
   })
 }
 
 main().catch(err => {
-  console.error(err)
+  log.error.error(String(err))
   process.exit(1)
 })

@@ -17,6 +17,7 @@ import { baseConfig, env, envInt, startNode, runUntilSignal } from './common.js'
 import { AggregatorNode } from '../aggregator/node.js'
 import { SqliteAggregatorStore } from '../aggregator/store-sqlite.js'
 import { SqliteSearchIndex } from '../aggregator/search-sqlite.js'
+import { log, flushLogs } from '../logger.js'
 
 async function main(): Promise<void> {
   const cfg = baseConfig()
@@ -41,15 +42,15 @@ async function main(): Promise<void> {
   })
   await aggregator.start()
 
-  console.log(`[aggregator] started — store=${storePath} search=${searchPath}`)
-  console.log(`[aggregator] subscribed platforms: ${(platforms.length ? platforms : ['<registry>']).join(', ')}`)
-  console.log(`[aggregator] indexed jobs at boot: ${store.count()}`)
+  log.aggregator.info(`started — store=${storePath} search=${searchPath}`)
+  log.aggregator.info(`subscribed platforms: ${(platforms.length ? platforms : ['<registry>']).join(', ')}`)
+  log.aggregator.info(`indexed jobs at boot: ${store.count()}`)
 
   // Periodic heartbeat so operators can see it's alive and growing.
   const heartbeat = setInterval(() => {
     const s = store.stats()
-    console.log(
-      `[aggregator] jobs=${s.totalJobs} rejected=${aggregator.rejected} salaryNull=${(s.salaryNullRate * 100).toFixed(1)}%`,
+    log.aggregator.info(
+      `heartbeat jobs=${s.totalJobs} rejected=${aggregator.rejected} salaryNull=${(s.salaryNullRate * 100).toFixed(1)}%`,
     )
   }, 60_000)
   heartbeat.unref?.()
@@ -60,10 +61,11 @@ async function main(): Promise<void> {
     store.close()
     search.close()
     await node.stop()
+    await flushLogs()
   })
 }
 
 main().catch(err => {
-  console.error(err)
+  log.error.error(String(err))
   process.exit(1)
 })

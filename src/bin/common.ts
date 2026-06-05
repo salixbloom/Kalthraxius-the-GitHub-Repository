@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { generateIdentity, loadIdentity, saveIdentity } from '../identity.js'
 import { createNode } from '../p2p-node.js'
+import { log, flushLogs } from '../logger.js'
 import type { KalthraxiusNode } from '../p2p-node.js'
 import type { Ed25519Identity } from '../identity.js'
 
@@ -71,7 +72,7 @@ export async function loadOrCreateIdentity(filePath: string): Promise<Ed25519Ide
   }
   const identity = await generateIdentity()
   saveIdentity(identity, filePath)
-  console.log(`[identity] generated new key → ${filePath}`)
+  log.identity.info(`generated new key → ${filePath}`)
   return identity
 }
 
@@ -87,9 +88,9 @@ export async function startNode(cfg: BaseConfig): Promise<KalthraxiusNode> {
   })
   await node.start()
 
-  console.log(`[node] peerId ${node.peerId.toString()}`)
+  log.node.info(`peerId ${node.peerId.toString()}`)
   for (const addr of node.getMultiaddrs()) {
-    console.log(`[node] listening ${addr.toString()}`)
+    log.node.info(`listening ${addr.toString()}`)
   }
 
   // Best-effort dial of bootstrap peers so the DHT/gossip meshes form promptly.
@@ -97,9 +98,9 @@ export async function startNode(cfg: BaseConfig): Promise<KalthraxiusNode> {
     try {
       const { multiaddr } = await import('@multiformats/multiaddr')
       await node.dial(multiaddr(addr))
-      console.log(`[node] dialed bootstrap ${addr}`)
+      log.node.info(`dialed bootstrap ${addr}`)
     } catch (err) {
-      console.warn(`[node] could not dial ${addr}: ${errMsg(err)}`)
+      log.node.warn(`could not dial ${addr}: ${errMsg(err)}`)
     }
   }
 
@@ -116,14 +117,15 @@ export function runUntilSignal(shutdown: () => Promise<void>): Promise<never> {
   const handle = (signal: string) => {
     if (shuttingDown) return
     shuttingDown = true
-    console.log(`\n[shutdown] ${signal} received, stopping…`)
+    log.shutdown.info(`${signal} received, stopping…`)
     shutdown()
+      .then(() => flushLogs())
       .then(() => {
-        console.log('[shutdown] done')
+        log.shutdown.info('done')
         process.exit(0)
       })
       .catch(err => {
-        console.error(`[shutdown] error: ${errMsg(err)}`)
+        log.shutdown.error(`error: ${errMsg(err)}`)
         process.exit(1)
       })
   }
@@ -137,6 +139,6 @@ export function errMsg(err: unknown): string {
 }
 
 export function fail(message: string): never {
-  console.error(`[error] ${message}`)
+  log.error.error(message)
   process.exit(1)
 }
