@@ -12,18 +12,16 @@ for internal invariants and gotchas see [AGENT_README.md](../AGENT_README.md).
 
 - **[Deployment](Deployment.md)** — how to run the project: bare-metal/systemd,
   Docker, Docker Compose, and Kubernetes.
+- **[API](API.md)** — HTTP API reference for the `aggregator-query` node.
 
 ## Node roles at a glance
 
 | Role | Entrypoint | What it does |
 |---|---|---|
-| Aggregator | `dist/bin/aggregator.js` | Subscribes to platform topics, verifies + enriches + indexes gossiped jobs, announces on the DHT, serves queries. Persistent (SQLite). |
+| Aggregator | `dist/bin/aggregator.js` | Subscribes to platform topics, verifies + enriches + indexes gossiped jobs, announces on the DHT. Persistent (SQLite). |
 | Scraper | `dist/bin/scraper.js` | Crawls a target on an interval, claims it in the DHT, extracts + gossips jobs. |
 | Aggregator-scraper | `dist/bin/aggregator-scraper.js` | Both roles on one libp2p identity/node. |
-
-A query **client** / HTTP-SSE **gateway** is a library API (`QueryClient`,
-`QueryServer`) rather than a packaged entrypoint — see the
-[README](../README.md#http--sse-gateway).
+| Aggregator + query API | `dist/bin/aggregator-query.js` | Aggregator with an HTTP API on `KAL_QUERY_PORT` for frontends and downstream services. See the [API reference](API.md). |
 
 ## Run model in one line
 

@@ -58,6 +58,12 @@ node dist/bin/<role>.js
 | Aggregator | `npm run start:aggregator` | `node dist/bin/aggregator.js` |
 | Scraper | `npm run start:scraper` | `node dist/bin/scraper.js` |
 | Aggregator-scraper | `npm run start:aggregator-scraper` | `node dist/bin/aggregator-scraper.js` |
+| Aggregator + query API | — | `node dist/bin/aggregator-query.js` |
+
+`aggregator-query` is a drop-in superset of `aggregator`: same P2P behaviour,
+same persistent store, plus a lightweight HTTP API on `KAL_QUERY_PORT` that any
+frontend or downstream service can call. See the [API reference](API.md) for the
+full endpoint documentation.
 
 All three respond to `SIGINT`/`SIGTERM` with a graceful shutdown (stop
 subscriptions/timers, close the store, stop the node) — so they behave well
@@ -71,13 +77,21 @@ All config is environment-driven. Defaults in parentheses.
 
 | Var | Default | Notes |
 |---|---|---|
-| `KAL_LISTEN` | `/ip4/0.0.0.0/tcp/0` | libp2p listen multiaddr. **Set a fixed port** in production (e.g. `/ip4/0.0.0.0/tcp/4001`) so it's mappable/exposable. |
+| `KAL_LISTEN` | `/ip4/0.0.0.0/tcp/0` | libp2p TCP listen multiaddr. **Set a fixed port** in production (e.g. `/ip4/0.0.0.0/tcp/4001`) so it's mappable/exposable. |
+| `KAL_WSLISTEN` | `/ip4/0.0.0.0/tcp/0/ws` | libp2p WebSocket listen multiaddr. Set a fixed port (e.g. `/ip4/0.0.0.0/tcp/4002/ws`) if you need browser or WS-only peers to dial in. |
 | `KAL_ANNOUNCE` | – | Comma-separated multiaddrs to advertise to peers. **Required behind NAT or Docker bridge networking.** Set to your public DNS/IP address so other nodes can dial back — e.g. `/dns4/jobs.example.com/tcp/4001/p2p/<peerId>`. Without this, the node advertises only its container/internal address and remote peers time out. |
-| `KAL_BOOTSTRAP` | – | Comma-separated multiaddrs of known peers to dial on start. How a new node joins the network. |
+| `KAL_BOOTSTRAP` | – | Comma-separated multiaddrs of known peers to dial on start. How a new node joins the network. The `/p2p/<peerId>` suffix is **optional** — if omitted the peer ID is resolved automatically from the noise handshake and logged. |
 | `KAL_IDENTITY_FILE` | `node.key` | Path to persist the Ed25519 key. **Put this on a persistent volume** so the node keeps its peer id across restarts. |
 | `KAL_ALLOW_PRIVATE` | off | `1`/`true` keeps loopback/private addresses in the DHT routing table. Needed for single-host/local clusters; **leave off in production**. |
 
-**Aggregator (`aggregator.js`, `aggregator-scraper.js`):**
+**Aggregator + query API (`aggregator-query.js` only):**
+
+| Var | Default | Notes |
+|---|---|---|
+| `KAL_QUERY_PORT` | `3000` | HTTP listen port for the query API. |
+| `KAL_QUERY_HOST` | `127.0.0.1` | HTTP bind host. Use `0.0.0.0` to expose on the LAN or to other containers. |
+
+**Aggregator (`aggregator.js`, `aggregator-scraper.js`, `aggregator-query.js`):**
 
 | Var | Default | Notes |
 |---|---|---|
@@ -118,10 +132,13 @@ restart from the same files (no data loss).
 
 ### Networking & ports (read this for P2P)
 
-libp2p peers must be able to **dial each other**. Two things matter:
+libp2p peers must be able to **dial each other**. Three things matter:
 
-- **Listen port.** Set `KAL_LISTEN=/ip4/0.0.0.0/tcp/4001` and expose/map that TCP
-  port. The transport is TCP + Noise (encrypted, Ed25519-authenticated).
+- **Listen port.** Set `KAL_LISTEN=/ip4/0.0.0.0/tcp/4001` and expose/map that
+  TCP port. The transport is TCP + Noise (encrypted, Ed25519-authenticated).
+  If you also need WebSocket (e.g. for browser peers or WS-only clients), set
+  `KAL_WSLISTEN=/ip4/0.0.0.0/tcp/4002/ws` and expose port 4002. Both transports
+  are active simultaneously.
 - **Announced address.** A node advertises the addresses it listens on. Behind
   NAT or container/pod networking, the address it *listens* on (`172.x.x.x`,
   `127.0.0.1`) is not the address peers can *reach*. Set `KAL_ANNOUNCE` to
@@ -132,6 +149,15 @@ libp2p peers must be able to **dial each other**. Two things matter:
   Without this, remote peers will time out even when the port is forwarded.
   Circuit-relay is not yet wired up — `KAL_ANNOUNCE` is the supported
   NAT-traversal mechanism today.
+- **Peer ID in bootstrap addresses.** The `/p2p/<peerId>` suffix in
+  `KAL_BOOTSTRAP` is optional. If you only know the IP/hostname of a bootstrap
+  peer (e.g. a fresh aggregator whose peer ID you haven't noted yet), omit the
+  suffix — the node will resolve the ID automatically during the noise handshake
+  and log it:
+  ```
+  [node] dialed bootstrap /ip4/1.2.3.4/tcp/4001 → resolved peerId 12D3KooW…
+  ```
+  Copy the resolved ID into your config for subsequent restarts.
 
 A practical bootstrap topology: run one well-known node with a fixed,
 routable address and port, and point every other node's `KAL_BOOTSTRAP` at it.
@@ -452,10 +478,11 @@ kubectl create configmap kal-descriptors --from-file=descriptors/
 - **Scaling:** add more scrapers (each on its own descriptor/target) freely —
   DHT scrape-claims keep them from double-crawling. Aggregators can be scaled
   out too; clients fan out across them and dedup by content hash.
-- **The query side** (`QueryClient`/`QueryServer`) isn't a packaged entrypoint.
-  If you want an HTTP gateway as its own deployable, add a small entrypoint that
-  constructs a node + `QueryServer` (see the [README](../README.md#http--sse-gateway))
-  and run it the same way as the others.
+- **The query API** is packaged as `aggregator-query.js`. It runs the full
+  aggregator role and additionally exposes an HTTP API on `KAL_QUERY_PORT`
+  (default `3000`). Deploy it exactly like `aggregator.js` and add the two
+  query-server vars (`KAL_QUERY_PORT`, `KAL_QUERY_HOST`) to the env file. See
+  the [API reference](API.md) for endpoint documentation.
 - **Resource sizing:** the DHT/store run in-process; the default datastore is
   in-memory (RAM grows with held DHT records — the validator caps per-record
   size). Aggregator job data is on disk (SQLite). Browser-mode scraping needs

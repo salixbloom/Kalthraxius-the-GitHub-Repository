@@ -11,6 +11,6 @@
     "type": "cursor",
     "pageParam": "pageToken",
     "pageSize": 20,
-    "maxPages": 5
+    "maxPages": 50
   }
 }

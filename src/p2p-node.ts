@@ -1,5 +1,6 @@
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
+import { webSockets } from '@libp2p/websockets'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { ping } from '@libp2p/ping'
@@ -61,7 +62,7 @@ export async function createNode(options: NodeOptions): Promise<KalthraxiusNode>
       listen: options.listenAddresses,
       ...(options.announceAddresses?.length ? { announce: options.announceAddresses } : {}),
     },
-    transports: [tcp()],
+    transports: [tcp(), webSockets()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     peerDiscovery,
