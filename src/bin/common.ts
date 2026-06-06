@@ -50,7 +50,7 @@ export function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-function splitMultiaddrs(raw: string | undefined): string[] {~
+function splitMultiaddrs(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map(s => s.trim()).filter(Boolean)
 }
 
