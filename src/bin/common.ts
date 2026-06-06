@@ -50,7 +50,7 @@ export function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-function splitMultiaddrs(raw: string | undefined): string[] {
+function splitMultiaddrs(raw: string | undefined): string[] {~
   return (raw ?? '').split(',').map(s => s.trim()).filter(Boolean)
 }
 
@@ -94,11 +94,20 @@ export async function startNode(cfg: BaseConfig): Promise<KalthraxiusNode> {
   }
 
   // Best-effort dial of bootstrap peers so the DHT/gossip meshes form promptly.
+  // When an addr lacks a /p2p/<peerId> component the peer ID is still resolved
+  // automatically during the noise/TLS handshake and is available on the
+  // returned Connection object.
   for (const addr of cfg.bootstrap) {
     try {
       const { multiaddr } = await import('@multiformats/multiaddr')
-      await node.dial(multiaddr(addr))
-      log.node.info(`dialed bootstrap ${addr}`)
+      const ma = multiaddr(addr)
+      const conn = await node.dial(ma)
+      const resolvedId = conn.remotePeer.toString()
+      if (ma.getPeerId() == null) {
+        log.node.info(`dialed bootstrap ${addr} → resolved peerId ${resolvedId}`)
+      } else {
+        log.node.info(`dialed bootstrap ${addr}`)
+      }
     } catch (err) {
       log.node.warn(`could not dial ${addr}: ${errMsg(err)}`)
     }
