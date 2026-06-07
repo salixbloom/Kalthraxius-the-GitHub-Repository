@@ -44,7 +44,7 @@
     "@libp2p/peer-id": "5.1.9",
     "@libp2p/ping": "2.0.37",
     "@libp2p/tcp": "10.1.19",
-    "@libp2p/websockets": "^10.1.14",
+    "@libp2p/websockets": "^9.2.19",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.10.0",
     "libp2p": "2.10.0",
